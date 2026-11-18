@@ -127,6 +127,7 @@ set +e
   data.shuffle=False \
   data.train_files="${TRAIN_DATASET}" \
   data.val_files="${TEST_DATASET}" \
+  data.dataloader_num_workers="${DATALOADER_NUM_WORKERS:-0}" \
   data.train_batch_size="${MINI_BATCH_SIZE}" \
   data.max_prompt_length="${MAX_PROMPT_LENGTH}" \
   data.max_response_length="${MAX_RESP_LENGTH}" \
