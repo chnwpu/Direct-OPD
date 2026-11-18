@@ -8,7 +8,7 @@ fi
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "${REPO_ROOT}"
 
-export PYTHONPATH="${REPO_ROOT}/verl:${PYTHONPATH:-}"
+export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/verl:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
 export RAY_memory_usage_threshold=${RAY_memory_usage_threshold:-0.99}
 export TORCH_NCCL_BLOCKING_WAIT=${TORCH_NCCL_BLOCKING_WAIT:-1}
@@ -41,6 +41,7 @@ TRAIN_LOG=${TRAIN_LOG:-"${LOG_ROOT}/${EXPERIMENT_NAME}.log"}
 SAVE_STEPS=${SAVE_STEPS:-"[0,10,20,40,60,100,150,200,300]"}
 TEST_STEPS=${TEST_STEPS:-"[40,100,200,300]"}
 DIAGNOSTIC_DIR=${DIAGNOSTIC_DIR:-}
+DIAGNOSTIC_EVERY=${DIAGNOSTIC_EVERY:-10}
 
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-token_reward_direct}
 GRPO_OUTCOME_WEIGHT=${GRPO_OUTCOME_WEIGHT:-1.0}
@@ -212,6 +213,7 @@ set +e
   +trainer.save_steps="${SAVE_STEPS}" \
   +trainer.test_steps="${TEST_STEPS}" \
   +trainer.diagnostic_dir="${DIAGNOSTIC_DIR}" \
+  +trainer.diagnostic_every="${DIAGNOSTIC_EVERY}" \
   trainer.total_epochs="${TOTAL_EPOCHS}" \
   trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
   trainer.default_local_dir="${CHECKPOINT_DIR}" \

@@ -1698,10 +1698,16 @@ class RayPPOTrainer:
                                     )
                                 )
                                 diagnostic_dir = self.config.trainer.get("diagnostic_dir", None)
-                                if diagnostic_dir and self.global_steps % 10 == 0:
-                                    from research.diagnostics import dump_topk_batch
+                                diagnostic_every = int(self.config.trainer.get("diagnostic_every", 10))
+                                if diagnostic_dir and self.global_steps % diagnostic_every == 0:
+                                    from research.diagnostics import dump_topk_batch, select_positions
 
                                     dump_topk_batch(batch, self.global_steps, diagnostic_dir)
+                                    position_mask, trajectory_ids = select_positions(batch)
+                                    batch.batch["diagnostic_position_mask"] = position_mask.to(batch.batch["responses"].device)
+                                    batch.batch["diagnostic_trace_id"] = trajectory_ids.to(batch.batch["responses"].device)
+                                    batch.meta_info["diagnostic_dir"] = str(diagnostic_dir)
+                                    batch.meta_info["diagnostic_step"] = self.global_steps
                                 metrics.update(
                                     _compute_student_weighted_teacher_logprob_metrics(
                                         student_topk_log_probs=batch.batch["student_top_k_log_probs"],
@@ -2958,6 +2964,15 @@ class RayPPOTrainer:
                 metrics["diagnostics/repetition_4gram_rate"] = repetition_4gram_rate(
                     batch.batch["responses"], batch.batch["response_mask"]
                 )
+                if "old_log_probs" in batch.batch and "ref_log_prob" in batch.batch:
+                    metrics["diagnostics/student_reference_sampled_log_ratio"] = masked_mean(
+                        batch.batch["old_log_probs"] - batch.batch["ref_log_prob"],
+                        batch.batch["response_mask"],
+                    ).item()
+                if "true_reward_score" in batch.batch:
+                    metrics["diagnostics/verifier_accuracy"] = (
+                        batch.batch["true_reward_score"].sum(dim=-1) > 0
+                    ).float().mean().item()
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()

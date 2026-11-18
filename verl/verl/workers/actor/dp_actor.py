@@ -812,6 +812,8 @@ class DataParallelPPOActor(BasePPOActor):
         # Include student_top_k_ids if present (for fixing "apples-to-oranges" bug)
         if "student_top_k_ids" in data.batch.keys():
             select_keys.append("student_top_k_ids")
+        if "diagnostic_position_mask" in data.batch.keys():
+            select_keys.extend(["diagnostic_position_mask", "diagnostic_trace_id"])
 
         # Include union_top_k_ids/log_probs for union strategy
         if "union_top_k_ids" in data.batch.keys():
@@ -853,7 +855,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                 self.actor_optimizer.zero_grad()
 
-                for micro_batch in micro_batches:
+                for micro_batch_index, micro_batch in enumerate(micro_batches):
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
@@ -979,6 +981,19 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * loss_scale_factor
                     else:
                         loss = policy_loss * loss_scale_factor
+                    if "diagnostic_position_mask" in model_inputs and advantages.dim() == 3:
+                        from research.gradient_capture import capture_micro_batch
+
+                        capture_micro_batch(
+                            loss=loss,
+                            topk_logp=topk_log_probs,
+                            sampled_logp=log_prob,
+                            model_inputs=model_inputs,
+                            output_dir=data.meta_info["diagnostic_dir"],
+                            step=int(data.meta_info["diagnostic_step"]),
+                            mini_batch_index=batch_idx,
+                            micro_batch_index=micro_batch_index,
+                        )
                     loss.backward()
 
                     micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
