@@ -1,0 +1,6 @@
+# Compatible with the official vLLM 0.11.0 and FlashAttention 2.8.1 setup.
+torch==2.8.0
+vllm==0.11.0
+transformers==4.57.1
+numpy==1.26.4
+tensordict==0.10.0

@@ -38,6 +38,9 @@ TEST_DATASET=${TEST_DATASET:-"['${REPO_ROOT}/datasets/eval/aime24.parquet','${RE
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-"${OUTPUT_ROOT}/${EXPERIMENT_NAME}"}
 OUTPUTS_DIR=${OUTPUTS_DIR:-"${CHECKPOINT_DIR}/outputs"}
 TRAIN_LOG=${TRAIN_LOG:-"${LOG_ROOT}/${EXPERIMENT_NAME}.log"}
+SAVE_STEPS=${SAVE_STEPS:-"[0,10,20,40,60,100,150,200,300]"}
+TEST_STEPS=${TEST_STEPS:-"[40,100,200,300]"}
+DIAGNOSTIC_DIR=${DIAGNOSTIC_DIR:-}
 
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-token_reward_direct}
 GRPO_OUTCOME_WEIGHT=${GRPO_OUTCOME_WEIGHT:-1.0}
@@ -206,6 +209,9 @@ set +e
   trainer.nnodes="${NUM_NODES}" \
   trainer.save_freq="${SAVE_FREQ}" \
   trainer.test_freq="${TEST_FREQ}" \
+  +trainer.save_steps="${SAVE_STEPS}" \
+  +trainer.test_steps="${TEST_STEPS}" \
+  +trainer.diagnostic_dir="${DIAGNOSTIC_DIR}" \
   trainer.total_epochs="${TOTAL_EPOCHS}" \
   trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
   trainer.default_local_dir="${CHECKPOINT_DIR}" \

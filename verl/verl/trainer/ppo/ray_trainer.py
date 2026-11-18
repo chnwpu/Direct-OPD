@@ -1450,6 +1450,11 @@ class RayPPOTrainer:
         # load checkpoint before doing anything
         self._load_checkpoint()
 
+        save_steps = set(self.config.trainer.get("save_steps", []))
+        test_steps = set(self.config.trainer.get("test_steps", []))
+        if self.global_steps == 0 and 0 in save_steps:
+            self._save_checkpoint()
+
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
@@ -1692,6 +1697,11 @@ class RayPPOTrainer:
                                         student_topk_log_probs=batch.batch.get("student_top_k_log_probs", None),
                                     )
                                 )
+                                diagnostic_dir = self.config.trainer.get("diagnostic_dir", None)
+                                if diagnostic_dir and self.global_steps % 10 == 0:
+                                    from research.diagnostics import dump_topk_batch
+
+                                    dump_topk_batch(batch, self.global_steps, diagnostic_dir)
                                 metrics.update(
                                     _compute_student_weighted_teacher_logprob_metrics(
                                         student_topk_log_probs=batch.batch["student_top_k_log_probs"],
@@ -2891,8 +2901,9 @@ class RayPPOTrainer:
                 # 2. It's the last training step.
                 # 3. The current step number is a multiple of the save frequency.
                 # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
-                if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+                if self.global_steps in save_steps or (
+                    self.config.trainer.save_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration)
                 ):
                     if esi_close_to_expiration:
                         print("Force saving checkpoint: ESI instance expiration approaching.")
@@ -2902,8 +2913,13 @@ class RayPPOTrainer:
                 # validate
                 if (
                     self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                    and (
+                        self.global_steps in test_steps
+                        or (
+                            self.config.trainer.test_freq > 0
+                            and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                        )
+                    )
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
                         val_metrics: dict = self._validate()
