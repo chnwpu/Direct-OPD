@@ -158,4 +158,6 @@ if python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1]))["trigg
     "${run_dir}/action_probes.jsonl" --output-dir "${run_dir}/candidate_values"
   wait_batch
 fi
+"${python_bin}" scripts/write_horizon_report.py \
+  --h2 "${h2}" --h4 "${h4}" --h6 "${h6}" --analysis "${run_dir}"
 date -u +%Y-%m-%dT%H:%M:%SZ > "${run_dir}/finished_utc.txt"
