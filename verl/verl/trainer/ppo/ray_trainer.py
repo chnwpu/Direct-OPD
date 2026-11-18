@@ -2960,6 +2960,19 @@ class RayPPOTrainer:
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                     self.train_dataloader.sampler.update(batch=batch)
 
+                rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                if rollout_data_dir:
+                    metrics_path = os.path.join(rollout_data_dir, f"step_{self.global_steps:04d}_metrics.json")
+                    temporary_path = f"{metrics_path}.tmp"
+                    numeric_metrics = {
+                        key: float(value)
+                        for key, value in metrics.items()
+                        if isinstance(value, (int, float, np.integer, np.floating))
+                    }
+                    with open(temporary_path, "w") as handle:
+                        json.dump(numeric_metrics, handle, sort_keys=True)
+                    os.replace(temporary_path, metrics_path)
+
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 

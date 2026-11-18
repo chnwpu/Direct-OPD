@@ -48,7 +48,8 @@ uname -a > "${run_dir}/system.txt"
   echo "phase=${phase}"
   echo "max_response_length=${max_response_length}"
   echo "training_steps=${training_steps}"
-  echo "seed=42"
+  echo "data_seed=42"
+  echo "rollout_seed=0"
   echo "train_batch_size=64"
   echo "mini_batch_size=64"
   echo "rollout_n=4"
@@ -110,6 +111,12 @@ finish_run() {
     awk -v seconds="${elapsed}" -v gpus="${GPUS_PER_NODE}" 'BEGIN { printf "allocated_gpu_hours=%.6f\n", seconds * gpus / 3600 }'
     echo "exit_status=${status}"
   } > "${run_dir}/timing.txt"
+  if compgen -G "${run_dir}/rollouts/step_*_token_ids.npz" > /dev/null; then
+    if ! "${python_bin}" "${repo_root}/scripts/summarize_horizon_run.py" "${run_dir}" \
+      > "${run_dir}/summary.log" 2>&1; then
+      echo "Run summary failed; inspect ${run_dir}/summary.log" >&2
+    fi
+  fi
 }
 trap finish_run EXIT
 

@@ -20,11 +20,18 @@ def sha256(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--only", nargs="+", help="Verify only the listed locked input paths")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     lock = json.loads((root / "experiments/horizon-fidelity/inputs.lock.json").read_text())
     results = {}
+    selected = set(args.only) if args.only else set(lock["files"])
+    unknown = selected.difference(lock["files"])
+    if unknown:
+        parser.error(f"unknown locked input paths: {', '.join(sorted(unknown))}")
     for name, expected in lock["files"].items():
+        if name not in selected:
+            continue
         path = root / name
         if not path.is_file():
             results[name] = {"ok": False, "reason": "missing"}

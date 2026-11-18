@@ -21,7 +21,11 @@ rollouts, logs and checkpoints. Checkpoints are requested every 5 training steps
 the full 32-sample AIME evaluation is requested at steps 0, 20 and 40.
 Each training step also saves the exact prompt and response token IDs plus masks
 in a compressed NPZ alongside the decoded rollout JSONL. `timing.txt` records
-wall time and allocated GPU-hours for each run.
+wall time and allocated GPU-hours for each run. Per-step numeric metrics include
+the number of completed optimizer updates. `run_summary.json` totals generated
+tokens, training tokens, optimizer updates and GPU-hours.
+`scripts/select_token_matched.py` picks the closest existing checkpoint by
+cumulative generated or training tokens, before its evaluation accuracy is seen.
 
 At launch, `select_idle_gpus.py` finds every GPU with no compute process,
 at most 512 MiB allocated and at most 10% utilization. The official verl
@@ -44,3 +48,10 @@ the training loss untouched; use raw probabilities for the Figure 8 analysis.
 No experimental result is recorded until a GPU run and verifier evaluation
 actually finish. The paper's reported values are reference targets, not results
 of this reproduction.
+
+The frozen initial-student set is produced separately with
+`bash scripts/run_fixed_trajectories.sh`. It samples all 60 AIME 2024/2025
+questions once and four predetermined questions a second time (64 trajectories
+total), keeps the complete prompt and response token IDs, and caps responses at
+16,384 tokens. The launcher chooses an idle GPU outside the maximal training
+group when one is available.

@@ -59,6 +59,7 @@ def main() -> None:
         max_model_len=1024 + args.max_new_tokens,
         gpu_memory_utilization=args.gpu_memory_utilization,
         enable_chunked_prefill=True,
+        max_num_seqs=8,
         seed=args.seed,
     )
     outputs = llm.generate(
