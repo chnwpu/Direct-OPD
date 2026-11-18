@@ -28,3 +28,5 @@ temp_files/
 !verl/verl/trainer/config/
 !verl/verl/trainer/config/model/
 !verl/verl/trainer/config/model/hf_model.yaml
+
+/runs/

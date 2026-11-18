@@ -48,6 +48,7 @@ MAX_MODEL_LEN=${MAX_MODEL_LEN:-$(( MAX_RESP_LENGTH + MAX_PROMPT_LENGTH > MAX_VAL
 MINI_BATCH_SIZE=${MINI_BATCH_SIZE:-128}
 PPO_MICRO_BATCH_SIZE_PER_GPU=${PPO_MICRO_BATCH_SIZE_PER_GPU:-1}
 TEMPERATURE=${TEMPERATURE:-1.0}
+TRAIN_TOP_P=${TRAIN_TOP_P:-1.0}
 TEACHER_TEMPERATURE=${TEACHER_TEMPERATURE:-1.0}
 REPETITION_PENALTY=${REPETITION_PENALTY:-1.0}
 N_RESPONSES=${N_RESPONSES:-4}
@@ -55,6 +56,7 @@ LOG_PROB_TOP_K=${LOG_PROB_TOP_K:-16}
 TOP_K_STRATEGY=${TOP_K_STRATEGY:-only_stu}
 REWARD_WEIGHT_MODE=${REWARD_WEIGHT_MODE:-student_p}
 KL_LOSS_COEF=${KL_LOSS_COEF:-2.5}
+ADAPTIVE_KL_LOSS_COEF=${ADAPTIVE_KL_LOSS_COEF:-True}
 ADAPTIVE_KL_LOSS_REWARD_KEY=${ADAPTIVE_KL_LOSS_REWARD_KEY:-delta_opd/weighted_reward_mean}
 ADAPTIVE_KL_LOSS_EPS=${ADAPTIVE_KL_LOSS_EPS:-0.01}
 ADAPTIVE_KL_LOSS_MIN_COEF=${ADAPTIVE_KL_LOSS_MIN_COEF:-0.5}
@@ -77,6 +79,8 @@ LOG_VAL_GENERATIONS=${LOG_VAL_GENERATIONS:-2}
 VAL_N=${VAL_N:-32}
 SAVE_FREQ=${SAVE_FREQ:-20}
 TEST_FREQ=${TEST_FREQ:-20}
+DATA_SEED=${DATA_SEED:-42}
+ROLLOUT_DATA_DIR=${ROLLOUT_DATA_DIR:-}
 TOTAL_EPOCHS=${TOTAL_EPOCHS:-2}
 TOTAL_TRAINING_STEPS=${TOTAL_TRAINING_STEPS:-300}
 IS_PLOT=${IS_PLOT:-True}
@@ -91,6 +95,12 @@ ROLLOUT_LOG_PROB_MAX_TOKEN_LEN_PER_GPU=${ROLLOUT_LOG_PROB_MAX_TOKEN_LEN_PER_GPU:
 REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU=${REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-16384}
 ROLLOUT_MAX_NUM_BATCHED_TOKENS=${ROLLOUT_MAX_NUM_BATCHED_TOKENS:-${MAX_MODEL_LEN}}
 mkdir -p "${LOG_ROOT}" "${CHECKPOINT_DIR}" "${OUTPUTS_DIR}/validation_log"
+
+EXTRA_TRAINER_OVERRIDES=()
+if [ -n "${ROLLOUT_DATA_DIR}" ]; then
+  mkdir -p "${ROLLOUT_DATA_DIR}"
+  EXTRA_TRAINER_OVERRIDES+=(trainer.rollout_data_dir="${ROLLOUT_DATA_DIR}")
+fi
 
 VLLM_ENGINE_OVERRIDES=()
 if [ -n "${VLLM_USE_INDUCTOR}" ]; then
@@ -117,6 +127,7 @@ set +e
   algorithm.adv_estimator="${ADV_ESTIMATOR}" \
   algorithm.grpo_outcome_weight="${GRPO_OUTCOME_WEIGHT}" \
   data.shuffle=False \
+  data.seed="${DATA_SEED}" \
   data.train_files="${TRAIN_DATASET}" \
   data.val_files="${TEST_DATASET}" \
   data.train_batch_size="${MINI_BATCH_SIZE}" \
@@ -137,7 +148,7 @@ set +e
   actor_rollout_ref.actor.ulysses_sequence_parallel_size="${PARALLEL_SIZE}" \
   actor_rollout_ref.actor.use_kl_loss=True \
   actor_rollout_ref.actor.kl_loss_coef="${KL_LOSS_COEF}" \
-  actor_rollout_ref.actor.adaptive_kl_loss_coef=True \
+  actor_rollout_ref.actor.adaptive_kl_loss_coef="${ADAPTIVE_KL_LOSS_COEF}" \
   actor_rollout_ref.actor.adaptive_kl_loss_reward_key="${ADAPTIVE_KL_LOSS_REWARD_KEY}" \
   actor_rollout_ref.actor.adaptive_kl_loss_eps="${ADAPTIVE_KL_LOSS_EPS}" \
   actor_rollout_ref.actor.adaptive_kl_loss_min_coef="${ADAPTIVE_KL_LOSS_MIN_COEF}" \
@@ -155,6 +166,7 @@ set +e
   actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="${REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU}" \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.temperature="${TEMPERATURE}" \
+  actor_rollout_ref.rollout.top_p="${TRAIN_TOP_P}" \
   actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="${ROLLOUT_LOG_PROB_MAX_TOKEN_LEN_PER_GPU}" \
   +actor_rollout_ref.rollout.reward_mode=delta_opd \
@@ -210,6 +222,7 @@ set +e
   trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
   trainer.default_local_dir="${CHECKPOINT_DIR}" \
   trainer.is_plot="${IS_PLOT}" \
+  "${EXTRA_TRAINER_OVERRIDES[@]}" \
   "${VLLM_ENGINE_OVERRIDES[@]}" \
   2>&1 | tee -a "${TRAIN_LOG}"
 STATUS=${PIPESTATUS[0]}
