@@ -238,9 +238,15 @@ class FileLogger:
             print(f"Creating file logger at {self.filepath}")
         self.fp = open(self.filepath, "a", buffering=1)
 
+    @staticmethod
+    def _serialize_metric(value):
+        if hasattr(value, "tolist"):
+            return value.tolist()
+        raise TypeError(f"Unsupported metric value type: {type(value).__name__}")
+
     def log(self, data, step):
         data = {"step": step, "data": data}
-        self.fp.write(json.dumps(data) + "\n")
+        self.fp.write(json.dumps(data, default=self._serialize_metric) + "\n")
 
     def finish(self):
         self.fp.close()
