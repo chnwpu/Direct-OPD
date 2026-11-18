@@ -32,7 +32,12 @@ mkdir -p "${run_dir}"
 
 model_root=${MODEL_ROOT:-"${repo_root}/models"}
 data_root=${DATA_ROOT:-"${repo_root}/datasets"}
-python_bin=${PYTHON_BIN:-"$(command -v python3)"}
+python_bin=${PYTHON_BIN:-"${repo_root}/.envs/direct-opd/bin/python"}
+if [ ! -x "${python_bin}" ]; then
+  echo "missing independent Python environment: ${python_bin}" >&2
+  exit 5
+fi
+export PYTHONNOUSERSITE=1
 experiment_name="horizon_fidelity_$(echo "$1" | tr '[:upper:]' '[:lower:]')_${phase}_${run_id}"
 git -C "${repo_root}" rev-parse HEAD > "${run_dir}/code_commit.txt"
 git -C "${repo_root}" diff > "${run_dir}/uncommitted.patch"
@@ -76,6 +81,11 @@ for required in \
   fi
 done
 
+if ! python3 "${repo_root}/scripts/verify_horizon_inputs.py" --report "${run_dir}/input_verification.json"; then
+  echo "Model or dataset files are incomplete; training not started." >&2
+  exit 4
+fi
+
 if ! visible_gpus=$(python3 "${repo_root}/scripts/select_idle_gpus.py" --snapshot "${run_dir}/gpu_selection.json" --batch-size 256); then
   echo "No idle NVIDIA GPU accessible; prepared ${run_dir}, training not started." >&2
   exit 3
@@ -86,8 +96,26 @@ nvidia-smi -L > "${run_dir}/gpu_inventory.txt" 2>&1
 nvidia-smi topo -m > "${run_dir}/gpu_topology.txt" 2>&1 || true
 df -h "${run_dir}" > "${run_dir}/disk.txt"
 echo "Using ${GPUS_PER_NODE} idle GPU(s): ${CUDA_VISIBLE_DEVICES}" >&2
+started_epoch=$(date -u +%s)
+started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+finish_run() {
+  status=$?
+  finished_epoch=$(date -u +%s)
+  finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  elapsed=$((finished_epoch - started_epoch))
+  {
+    echo "started_utc=${started_utc}"
+    echo "finished_utc=${finished_utc}"
+    echo "wall_seconds=${elapsed}"
+    awk -v seconds="${elapsed}" -v gpus="${GPUS_PER_NODE}" 'BEGIN { printf "allocated_gpu_hours=%.6f\n", seconds * gpus / 3600 }'
+    echo "exit_status=${status}"
+  } > "${run_dir}/timing.txt"
+}
+trap finish_run EXIT
 
 export MODEL_ROOT="${model_root}" DATA_ROOT="${data_root}"
+export MANAGE_RAY=False
+unset RAY_ADDRESS
 export OUTPUT_ROOT="${run_dir}/checkpoints" LOG_ROOT="${run_dir}/logs"
 export EXPERIMENT_NAME="${experiment_name}" PROJECT_NAME=direct-opd
 export PYTHON_BIN="${python_bin}"
@@ -104,4 +132,4 @@ export ROLLOUT_DATA_DIR="${run_dir}/rollouts"
 export TRAIN_DATASET="${data_root}/train/skywork-or1-math-dapo-original.parquet"
 
 cd "${repo_root}"
-exec bash scripts/train_justrl_qwen.sh
+bash scripts/train_justrl_qwen.sh

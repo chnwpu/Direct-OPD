@@ -30,3 +30,4 @@ temp_files/
 !verl/verl/trainer/config/model/hf_model.yaml
 
 /runs/
+/.envs/

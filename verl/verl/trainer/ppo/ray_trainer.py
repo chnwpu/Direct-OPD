@@ -836,6 +836,19 @@ class RayPPOTrainer:
                 reward_extra_infos_dict=reward_extra_infos_to_dump,
                 dump_path=rollout_data_dir,
             )
+            # Preserve exact sampled token IDs for position-wise fidelity analysis.
+            # This only copies rollout tensors to disk; it does not affect training.
+            token_path = os.path.join(rollout_data_dir, f"step_{self.global_steps:04d}_token_ids.npz")
+            temporary_path = f"{token_path}.tmp.npz"
+            np.savez_compressed(
+                temporary_path,
+                prompts=batch.batch["prompts"].cpu().numpy().astype(np.int32),
+                responses=batch.batch["responses"].cpu().numpy().astype(np.int32),
+                response_mask=batch.batch["response_mask"].cpu().numpy().astype(np.uint8),
+                attention_mask=batch.batch["attention_mask"].cpu().numpy().astype(np.uint8),
+                global_step=np.int32(self.global_steps),
+            )
+            os.replace(temporary_path, token_path)
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""

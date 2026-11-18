@@ -1,0 +1,42 @@
+{
+  "sources": {
+    "student": "Qwen/Qwen3-1.7B@70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+    "teacher_ref": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B@ad9f0ae0864d7fbcd1cd905e3c6c5b069cc8b562",
+    "teacher_rl": "hbx/JustRL-DeepSeek-1.5B@0637e4096c789c67f9eecbe8355e0bdeddede1c2",
+    "train_data": "Skywork/Skywork-OR1-RL-Data@1cdedc52e0e2db85fdf252f9be682e63a5a38c33"
+  },
+  "files": {
+    "models/Qwen3-1.7B/model-00001-of-00002.safetensors": {
+      "bytes": 3441185608,
+      "sha256": "169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5"
+    },
+    "models/Qwen3-1.7B/model-00002-of-00002.safetensors": {
+      "bytes": 622329984,
+      "sha256": "912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9"
+    },
+    "models/DeepSeek-R1-Distill-Qwen-1.5B/model.safetensors": {
+      "bytes": 3554214621,
+      "sha256": "58858233513d76b8703e72eed6ce16807b523328188e13329257fb9594462945"
+    },
+    "models/JustRL-DeepSeek-1.5B/model.safetensors": {
+      "bytes": 3554214752,
+      "sha256": "1bedcdf243c4e2e633fa04c05617809cf6a1bbc1a07221609035f6347efecffb"
+    },
+    "datasets/raw/skywork-or1-math.parquet": {
+      "bytes": 18968502,
+      "sha256": "bf2dd0affae1bb03d2ec312412d81c87841d78a51058d57d9c6db615bac53ea1"
+    },
+    "datasets/train/skywork-or1-math-dapo-original.parquet": {
+      "bytes": 20257324,
+      "sha256": "8a2b134901a995adaac486c2ba5daea7aeeaeb4a0f29c235e103cd6451633393"
+    },
+    "datasets/eval/aime24.parquet": {
+      "bytes": 12457,
+      "sha256": "be47fadc496c46fd8e2996ddd31d24705feff79a5f1214ba3abb8b042194c8a1"
+    },
+    "datasets/eval/aime25.parquet": {
+      "bytes": 11479,
+      "sha256": "a144771c4a3d7322322396789c9929323ea31d3251c70571839f1a139f90f257"
+    }
+  }
+}
