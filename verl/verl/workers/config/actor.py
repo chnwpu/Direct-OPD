@@ -110,6 +110,7 @@ class ActorConfig(BaseConfig):
     use_torch_compile: bool = True
     kl_loss_coef: float = 2.5
     adaptive_kl_loss_coef: bool = False
+    exact_topk_reverse_kl: bool = False
     adaptive_kl_loss_reward_key: str = "delta_opd/weighted_reward_mean"
     adaptive_kl_loss_eps: float = 0.02
     adaptive_kl_loss_min_coef: float = 0.5

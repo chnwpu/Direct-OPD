@@ -18,14 +18,18 @@ printf '%s  %s\n' \
   '912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9' "${RESOURCE_ROOT}/models/Qwen3-1.7B/model-00002-of-00002.safetensors" \
   '1bedcdf243c4e2e633fa04c05617809cf6a1bbc1a07221609035f6347efecffb' "${RESOURCE_ROOT}/models/JustRL-DeepSeek-1.5B/model.safetensors" \
   '58858233513d76b8703e72eed6ce16807b523328188e13329257fb9594462945' "${RESOURCE_ROOT}/models/DeepSeek-R1-Distill-Qwen-1.5B/model.safetensors" \
-  | sha256sum --check
+  > "${RUN_DIR}/model_sha256.txt"
+sha256sum --check "${RUN_DIR}/model_sha256.txt"
 test -s "${RESOURCE_ROOT}/datasets/train/skywork-or1-math-dapo-original.parquet"
 test -x "${RESOURCE_ROOT}/.envs/direct-opd/bin/python"
 
 export PYTHON_BIN="${RESOURCE_ROOT}/.envs/direct-opd/bin/python"
 export PATH="${RESOURCE_ROOT}/.envs/direct-opd/bin:${PATH}"
 export PYTHONNOUSERSITE=1
-export RAY_TMPDIR="${RUN_DIR}/ray"
+export RAY_ADDRESS=local
+export RAY_TMPDIR
+RAY_TMPDIR=$(mktemp -d /tmp/dopd-ray.XXXXXXXX)
+printf '%s\n' "${RAY_TMPDIR}" > "${RUN_DIR}/ray/runtime_path.txt"
 export MANAGE_RAY=False
 export ACTOR_MODEL_PATH="${RESOURCE_ROOT}/models/Qwen3-1.7B"
 export REWARD_MODEL_PATH="${RESOURCE_ROOT}/models/JustRL-DeepSeek-1.5B"
@@ -34,6 +38,8 @@ export TRAIN_DATASET="${RESOURCE_ROOT}/datasets/train/skywork-or1-math-dapo-orig
 export TEST_DATASET="['${RESOURCE_ROOT}/datasets/eval/aime24.parquet','${RESOURCE_ROOT}/datasets/eval/aime25.parquet']"
 export OUTPUT_ROOT="${RUN_DIR}/checkpoints"
 export LOG_ROOT="${RUN_DIR}/logs"
+export LOGGER="${LOGGER:-['console','file']}"
+export VERL_FILE_LOGGER_PATH="${LOG_ROOT}/metrics.jsonl"
 export DIAGNOSTIC_DIR="${RUN_DIR}/diagnostics"
 export PROJECT_NAME=direct-opd
 export EXPERIMENT_NAME=e0_vanilla_opd
@@ -61,6 +67,7 @@ export ADAPTIVE_KL_LOSS_COEF=False
 
 git -C "${ROOT}" rev-parse HEAD > "${RUN_DIR}/code_commit.txt"
 "${PYTHON_BIN}" -m pip freeze > "${RUN_DIR}/environment.freeze.txt"
+sha256sum "${TRAIN_DATASET}" > "${RUN_DIR}/training_data_sha256.txt"
 {
   for name in RESOURCE_ROOT ACTOR_MODEL_PATH REWARD_MODEL_PATH TEACHER_REF_MODEL_PATH TRAIN_DATASET \
       TEST_DATASET GPUS_PER_NODE MINI_BATCH_SIZE N_RESPONSES MAX_PROMPT_LENGTH MAX_RESP_LENGTH \

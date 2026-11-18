@@ -39,3 +39,5 @@ E0 minimizes the exact Student-top-16 reverse KL of paper Eq. (4) against T1 on 
 The E0 command is `bash research/run_e0.sh`; it writes the E0 configuration, code commit, environment, checkpoints, and diagnostics to `runs/e0_vanilla_opd`.
 
 After E1 produces diagnostic snapshots, run `PYTHONNOUSERSITE=1 .envs/direct-opd/bin/python research/analyze_on_policy.py --diagnostic-dir runs/e1_direct_opd/diagnostics --output-dir runs/e1_direct_opd/analysis` to write candidate-level parquet, support-bin statistics, and probability/shift heatmaps. A positive logged gradient means the optimizer step tends to lower that candidate's logit.
+
+The two Teacher tokenizers agree on the thinking tag IDs. Shared Student/Teacher vocabulary entries match except `<think>` and `</think>`. The official scorer uses raw Student IDs, which this reproduction preserves. On-policy analysis exports a sensitivity summary excluding candidate IDs 151648, 151649, 151667 and 151668. This filter is used only in reporting.
