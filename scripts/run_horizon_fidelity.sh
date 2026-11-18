@@ -102,6 +102,7 @@ started_epoch=$(date -u +%s)
 started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 finish_run() {
   status=$?
+  python3 "${repo_root}/scripts/reap_horizon_workers.py" "${run_dir}" || true
   finished_epoch=$(date -u +%s)
   finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   elapsed=$((finished_epoch - started_epoch))
@@ -141,4 +142,4 @@ export ROLLOUT_DATA_DIR="${run_dir}/rollouts"
 export TRAIN_DATASET="${data_root}/train/skywork-or1-math-dapo-original.parquet"
 
 cd "${repo_root}"
-bash scripts/train_justrl_qwen.sh
+DIRECT_OPD_WORKER_RUN_DIR="${run_dir}" bash scripts/train_justrl_qwen.sh
