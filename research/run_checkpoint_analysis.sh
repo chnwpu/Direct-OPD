@@ -73,3 +73,5 @@ done
 "$python" research/analyze_prefix_bank.py --bank "$bank" --t0 "$output/t0.pt" --t1 "$output/t1.pt" \
     --output-dir "$output" "${prefix_args[@]}"
 "$python" research/compare_evaluations.py --baseline "$baseline" --output "$output/aime_comparison.csv" "${eval_args[@]}"
+"$python" research/export_training_dynamics.py --e1-metrics "$e1/logs/metrics.jsonl" \
+    --e0-metrics "$e0/logs/metrics.jsonl" --analysis-dir "$output"
