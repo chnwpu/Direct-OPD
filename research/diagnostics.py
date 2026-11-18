@@ -47,10 +47,14 @@ def dump_topk_batch(batch, step: int, output_dir: str, trajectories: int = 32, p
             "token_positions": token_positions,
             "candidate_ids": candidate_ids,
             "student_logp_full_vocab": student_logp,
+            "student_probability_full_vocab": student_logp.exp(),
             "t1_logp_full_vocab": t1_logp,
+            "t1_probability_full_vocab": t1_logp.exp(),
             "t0_logp_full_vocab": t0_logp,
+            "t0_probability_full_vocab": t0_logp.exp(),
             "policy_shift": shift,
             "weighted_policy_shift": weighted_shift,
+            "weighted_policy_shift_topk_normalized": weighted_shift,
             "sampled_token_flag": candidate_ids.eq(sampled_ids[:, None]),
             "student_reference_sampled_logp": (
                 tensors["ref_log_prob"][i, token_positions].detach().cpu().float()

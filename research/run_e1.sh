@@ -12,6 +12,12 @@ for model_file in \
   "${ROOT}/models/DeepSeek-R1-Distill-Qwen-1.5B/model.safetensors"; do
   test -s "${model_file}" || { echo "Missing model: ${model_file}" >&2; exit 1; }
 done
+printf '%s  %s\n' \
+  '169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5' "${ROOT}/models/Qwen3-1.7B/model-00001-of-00002.safetensors" \
+  '912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9' "${ROOT}/models/Qwen3-1.7B/model-00002-of-00002.safetensors" \
+  '1bedcdf243c4e2e633fa04c05617809cf6a1bbc1a07221609035f6347efecffb' "${ROOT}/models/JustRL-DeepSeek-1.5B/model.safetensors" \
+  '58858233513d76b8703e72eed6ce16807b523328188e13329257fb9594462945' "${ROOT}/models/DeepSeek-R1-Distill-Qwen-1.5B/model.safetensors" \
+  | sha256sum --check
 test -s "${ROOT}/datasets/train/skywork-or1-math-dapo-original.parquet"
 test -x "${ROOT}/.envs/direct-opd/bin/python"
 
