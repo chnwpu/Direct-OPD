@@ -9,7 +9,7 @@ Run order after the 1-step smoke and 5-step profiling gates:
 
 ```bash
 bash scripts/run_horizon_fidelity.sh H2 smoke
-bash scripts/run_horizon_fidelity.sh H2 profile
+bash scripts/run_horizon_fidelity.sh H6 profile
 bash scripts/run_horizon_fidelity.sh H2 train
 bash scripts/run_horizon_fidelity.sh H6 train
 bash scripts/run_horizon_fidelity.sh H4 train
@@ -24,6 +24,8 @@ in a compressed NPZ alongside the decoded rollout JSONL. `timing.txt` records
 wall time and allocated GPU-hours for each run. Per-step numeric metrics include
 the number of completed optimizer updates. `run_summary.json` totals generated
 tokens, training tokens, optimizer updates and GPU-hours.
+All horizons use a 7168-token actor microbatch limit to accommodate a single
+1024-token prompt with a 6144-token response.
 `scripts/select_token_matched.py` picks the closest existing checkpoint by
 cumulative generated or training tokens, before its evaluation accuracy is seen.
 
@@ -70,3 +72,8 @@ T0, T1 and S0 gets eight samples per prefix, up to 1,152 in total.
 `summarize_prefix_continuations.py` reports the observed success rates and
 finite-sample intervals, including a comparison restricted to questions that
 survive to the 4096-token prefix.
+
+`teacher_forced_stats.py` records full-vocabulary probabilities and entropy
+with FP32 forwards in chunks, then queries both teachers on each student's
+top-16 IDs. `aggregate_teacher_shift.py` applies Eq. 20 and reports all
+available positions and shared long-trajectory cohorts separately.

@@ -54,6 +54,7 @@ uname -a > "${run_dir}/system.txt"
   echo "mini_batch_size=64"
   echo "rollout_n=4"
   echo "max_prompt_length=1024"
+  echo "actor_microbatch_token_limit=7168"
   echo "train_temperature=1.0"
   echo "train_top_p=1.0"
   echo "student_top_k=16"
@@ -127,6 +128,7 @@ export OUTPUT_ROOT="${run_dir}/checkpoints" LOG_ROOT="${run_dir}/logs"
 export EXPERIMENT_NAME="${experiment_name}" PROJECT_NAME=direct-opd
 export PYTHON_BIN="${python_bin}"
 export MAX_RESP_LENGTH="${max_response_length}" MAX_PROMPT_LENGTH=1024
+export PPO_MAX_TOKEN_LEN_PER_GPU=7168
 export MAX_VAL_RESP_LENGTH=31744
 export MINI_BATCH_SIZE=64 N_RESPONSES=4
 export TEMPERATURE=1.0 TRAIN_TOP_P=1.0 LOG_PROB_TOP_K=16
