@@ -27,6 +27,8 @@ def read_metrics(log):
         data = entry["data"]
         row = {"step": entry["step"]}
         row.update({key: data.get(source) for source, key in TRAIN_METRICS.items()})
+        if row["adaptive_kl_coefficient"] is None:
+            row["adaptive_kl_coefficient"] = data.get("actor/kl_coef")
         row.update({key: value for key, value in data.items() if key.startswith("val-diagnostics/")})
         rows.append(row)
     return pd.DataFrame(rows).drop_duplicates("step", keep="last").sort_values("step")
