@@ -41,6 +41,14 @@ def main():
             f"{100 * row.delta_vs_baseline:+.2f} | "
             f"[{100 * row.paired_prompt_bootstrap_low:+.2f}, {100 * row.paired_prompt_bootstrap_high:+.2f}] |"
         )
+    for source, group in aime[aime.experiment == "e1"].groupby("benchmark"):
+        end = group.loc[group.step == 300].iloc[0]
+        change = end.delta_vs_baseline
+        trend = "提升" if change > 0 else "下降" if change < 0 else "持平"
+        lines.append(
+            f"\n{source} 在 E1 Step 300 {trend} {100 * abs(change):.2f} 个百分点。"
+            "可与论文相应的 10.0 和 6.4 个百分点提升比较。"
+        )
     lines.extend([
         "", "## 真实 on-policy 候选与梯度", "",
         "低支持定义为 T1 概率小于 0.1，高 Shift 定义为 T1/T0 概率比至少 10。"
@@ -56,8 +64,11 @@ def main():
         stats = json.loads((directory / "summary.json").read_text())
         buckets = pd.read_csv(directory / "support_buckets.csv")
         share = buckets.iloc[:4].share_of_high_shift_candidates.sum()
+        baseline_share = buckets.iloc[:4].candidate_count.sum() / buckets.candidate_count.sum()
+        enrichment = share / baseline_share
         lines.append(
-            f"- {arm} 的 {stats['candidate_rows']:,} 个记录候选中，高 Shift 候选有 {share:.2%} 处于低 T1 支持桶。"
+            f"- {arm} 的 {stats['candidate_rows']:,} 个记录候选中，高 Shift 候选有 {share:.2%} 处于低 T1 支持桶，"
+            f"该桶在所有候选中的占比为 {baseline_share:.2%}，富集倍数为 {enrichment:.2f}。"
             f"低支持高 Shift 候选占实测绝对梯度 {stats['high_shift_low_support_share_of_absolute_gradient']:.2%}。"
             f"{stats['prefix_fraction_top1_suppressed_and_lower_candidate_reinforced']:.2%} 的位置同时出现"
             " T1 Top-1 局部受抑制和低支持高 Shift 候选局部受强化。"
