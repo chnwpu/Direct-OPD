@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,19 @@ def verifier_correct(generation):
         return generation["verifier_score"] > 0
     reward = generation["true_reward_score"]
     return (sum(reward) if isinstance(reward, list) else reward) > 0
+
+
+def dapo_prompt_correct(generation, official_correct):
+    """Also score the final Answer: line requested by the training prompts."""
+    if official_correct:
+        return True
+    last_line = generation["output"].rstrip().rsplit("\n", 1)[-1]
+    match = re.fullmatch(r"\s*Answer\s*:\s*(.{1,256}?)\s*", last_line, re.IGNORECASE)
+    if match is None:
+        return False
+    from verl.utils.reward_score.ttrl_math import grade
+
+    return bool(grade(match.group(1), str(generation["gts"]), fast=True))
 
 
 def main():
@@ -38,16 +52,28 @@ def main():
             rows = []
             for index, generation in enumerate(generations):
                 selection = slice(offsets[index], offsets[index + 1])
+                correct = verifier_correct(generation)
                 rows.append({
                     "length": int(lengths[index]),
-                    "correct": verifier_correct(generation),
+                    "correct": correct,
+                    "dapo_prompt_correct": dapo_prompt_correct(generation, correct),
                     **{name: values[selection] for name, values in fields.items()},
                 })
         metrics_file = args.rollout_dir / f"step_{step:04d}_metrics.json"
         metrics = json.loads(metrics_file.read_text())
+        official = summarize_bins(rows)
+        prompt_correct = summarize_bins([
+            {**row, "correct": row["dapo_prompt_correct"]} for row in rows
+        ])
         result.append({
             "step": step,
-            "all_available": summarize_bins(rows),
+            "all_available": official,
+            "official_verifier_correct_count": sum(row["correct"] for row in rows),
+            "official_or_final_answer_line_correct_count": sum(row["dapo_prompt_correct"] for row in rows),
+            "g_vs_official_or_final_answer_line_correct_by_bin": [
+                {key: bin_row.get(key) for key in ("start", "end", "g_vs_trajectory_correct_correlation")}
+                for bin_row in prompt_correct
+            ],
             "same_long_trajectory_subset": {
                 str(threshold): summarize_bins(rows, minimum_length=threshold)
                 for threshold in (2048, 4096, 6144)

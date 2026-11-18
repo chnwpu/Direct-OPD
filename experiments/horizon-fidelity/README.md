@@ -85,6 +85,9 @@ all candidates and for the gradient component from low-support, high-shift
 candidates. The cutoffs are probability below 0.0001 under both teachers and
 absolute log-ratio above 2. The norm of the component can exceed that of the
 total when components cancel. The measurement excludes the separate KL term.
+Training rollout analysis preserves the official verifier label and also
+reports a prompt-aware label that checks the final `Answer:` line alongside
+boxed answers. This applies only to the offline training-trajectory analysis.
 
 Export an actor checkpoint with the repository's FSDP merger before using
 `evaluate_horizon_checkpoint.py` or `teacher_forced_stats.py`:
