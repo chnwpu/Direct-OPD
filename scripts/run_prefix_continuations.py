@@ -21,8 +21,12 @@ def main() -> None:
     parser.add_argument("--student-tokenizer", type=Path, default=Path("models/Qwen3-1.7B"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.8)
     args = parser.parse_args()
+    if not 0 <= args.shard_index < args.shard_count:
+        parser.error("invalid shard index or count")
     prefixes = [json.loads(line) for line in args.prefixes.open()]
     if len(prefixes) > 48:
         parser.error(f"expected at most 48 prefixes, found {len(prefixes)}")
@@ -49,6 +53,8 @@ def main() -> None:
             completed.add((row["trajectory_id"], row["prefix_length"], row["sample_index"]))
     with args.output.open("a") as handle:
         for prefix_index, prefix in enumerate(prefixes):
+            if prefix_index % args.shard_count != args.shard_index:
+                continue
             key = (prefix["trajectory_id"], prefix["prefix_length"])
             existing = {sample for trajectory, length, sample in completed if (trajectory, length) == key}
             if existing == set(range(8)):

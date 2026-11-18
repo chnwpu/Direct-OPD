@@ -91,16 +91,25 @@ submit forward_T0 "${python_bin}" scripts/teacher_forced_stats.py "${frozen}/tra
 submit forward_T1 "${python_bin}" scripts/teacher_forced_stats.py "${frozen}/trajectories.jsonl" \
   --model models/JustRL-DeepSeek-1.5B --model-name T1 --output-dir "${run_dir}/forwards/T1" \
   --student-stats-dir "${run_dir}/forwards"
+continuation_shards=$(( (${#gpus[@]} - 2) / 3 ))
+continuation_shards=$(( continuation_shards > 0 ? continuation_shards : 1 ))
 for name in T0 T1 S0; do
   case "${name}" in
     T0) model=models/DeepSeek-R1-Distill-Qwen-1.5B ;;
     T1) model=models/JustRL-DeepSeek-1.5B ;;
     S0) model=models/Qwen3-1.7B ;;
   esac
-  submit "continuation_${name}" "${python_bin}" scripts/run_prefix_continuations.py "${frozen}/prefixes.jsonl" \
-    --model "${model}" --model-name "${name}" --output "${run_dir}/continuations/${name}.jsonl"
+  for (( sh=0; sh<continuation_shards; sh++ )); do
+    submit "continuation_${name}_${sh}" "${python_bin}" scripts/run_prefix_continuations.py \
+      "${frozen}/prefixes.jsonl" --model "${model}" --model-name "${name}" \
+      --shard-index "${sh}" --shard-count "${continuation_shards}" \
+      --output "${run_dir}/continuations/${name}_shard_${sh}.jsonl"
+  done
 done
 wait_batch
+for name in T0 T1 S0; do
+  cat "${run_dir}/continuations/${name}"_shard_*.jsonl > "${run_dir}/continuations/${name}.jsonl"
+done
 
 "${python_bin}" scripts/aggregate_teacher_shift.py "${frozen}/trajectories.jsonl" \
   --stats-dir "${run_dir}/forwards" --output "${run_dir}/teacher_shift.json"
@@ -120,11 +129,20 @@ if [ "${matched_step}" -ne 40 ]; then
   checkpoint=$(checkpoint_at "${h6}" "${matched_step}")
   merge_actor "${checkpoint}" "${h6_model}" > "${run_dir}/logs/merge_h6_matched.log" 2>&1
 fi
-submit matched_h2 "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
-  --model "${run_dir}/exported/h2" --output-dir "${run_dir}/matched_h2_step_40"
-submit matched_h6 "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
-  --model "${h6_model}" --output-dir "${run_dir}/matched_h6_step_${matched_step}"
+eval_shards=$(( ${#gpus[@]} / 2 ))
+eval_shards=$(( eval_shards > 0 ? eval_shards : 1 ))
+for (( sh=0; sh<eval_shards; sh++ )); do
+  submit "matched_h2_${sh}" "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
+    --model "${run_dir}/exported/h2" --shard-index "${sh}" --shard-count "${eval_shards}" \
+    --output-dir "${run_dir}/matched_h2_step_40/shard_${sh}"
+  submit "matched_h6_${sh}" "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
+    --model "${h6_model}" --shard-index "${sh}" --shard-count "${eval_shards}" \
+    --output-dir "${run_dir}/matched_h6_step_${matched_step}/shard_${sh}"
+done
 wait_batch
+for target in "${run_dir}/matched_h2_step_40" "${run_dir}/matched_h6_step_${matched_step}"; do
+  cat "${target}"/shard_*/generations.jsonl > "${target}/generations.jsonl"
+done
 "${python_bin}" scripts/summarize_horizon_accuracy.py \
   --h2 "${h2}" --h4 "${h4}" --h6 "${h6}" --analysis "${run_dir}"
 

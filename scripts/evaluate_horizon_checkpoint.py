@@ -18,7 +18,11 @@ def main():
     parser.add_argument("--model", type=Path, required=True, help="Hugging Face checkpoint directory")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
+    if not 0 <= args.shard_index < args.shard_count <= 60:
+        parser.error("invalid shard index or count")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     datasets = Path(__file__).resolve().parents[1] / "datasets" / "eval"
     rows = []
@@ -31,6 +35,7 @@ def main():
     config = {
         "model": str(args.model.resolve()), "seed": args.seed, "samples_per_problem": 32,
         "temperature": 0.7, "top_p": 0.95, "max_generation_tokens": 31744, "max_model_len": 32768,
+        "shard_index": args.shard_index, "shard_count": args.shard_count,
     }
     (args.output_dir / "parameters.json").write_text(json.dumps(config, indent=2) + "\n")
     tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
@@ -42,22 +47,25 @@ def main():
         raise ValueError("an AIME prompt exceeds the training prompt limit")
     llm = LLM(
         model=config["model"], dtype="bfloat16", max_model_len=32768,
-        max_num_seqs=128, gpu_memory_utilization=0.85, seed=args.seed,
+        max_num_seqs=10, gpu_memory_utilization=0.85, seed=args.seed,
         enable_chunked_prefill=True, enable_prefix_caching=True,
     )
     totals = defaultdict(int)
     correct = defaultdict(int)
+    problem_indices = list(range(args.shard_index, len(rows), args.shard_count))
     temporary = args.output_dir / "generations.jsonl.tmp"
     with temporary.open("w") as handle:
-        for start in range(0, len(rows), 4):
-            requests = [{"prompt_token_ids": ids} for ids in prompts[start : start + 4]]
+        for start in range(0, len(problem_indices), 4):
+            batch = problem_indices[start : start + 4]
+            requests = [{"prompt_token_ids": prompts[index]} for index in batch]
             sampling = [
                 SamplingParams(n=32, temperature=0.7, top_p=0.95, top_k=-1,
                                max_tokens=31744, repetition_penalty=1.0, seed=args.seed + index)
-                for index in range(start, start + len(requests))
+                for index in batch
             ]
             outputs = llm.generate(requests, sampling)
-            for row, completion in zip(rows[start : start + 4], outputs, strict=True):
+            for index, completion in zip(batch, outputs, strict=True):
+                row = rows[index]
                 source = row["data_source"]
                 ground_truth = row["reward_model"]["ground_truth"]
                 if len(completion.outputs) != 32:

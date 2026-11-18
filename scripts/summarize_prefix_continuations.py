@@ -40,7 +40,10 @@ def main() -> None:
     success_draws = {}
     for key in sorted(by_key):
         samples = by_key[key]
-        if any(len(samples[model]) != 8 for model in ("T0", "T1", "S0")):
+        if any(
+            sorted(row["sample_index"] for row in samples[model]) != list(range(8))
+            for model in ("T0", "T1", "S0")
+        ):
             raise ValueError(f"incomplete or duplicated eight-sample group: {key}")
         estimates = {}
         posteriors = {}
