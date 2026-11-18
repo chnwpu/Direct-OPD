@@ -65,12 +65,6 @@ uname -a > "${run_dir}/system.txt"
   echo "train_data=Skywork/Skywork-OR1-RL-Data math split"
 } > "${run_dir}/resolved_parameters.txt"
 
-if ! nvidia-smi -L > "${run_dir}/gpu_inventory.txt" 2>&1; then
-  echo "No accessible NVIDIA GPU; prepared ${run_dir}, training not started." >&2
-  exit 3
-fi
-nvidia-smi topo -m > "${run_dir}/gpu_topology.txt" 2>&1 || true
-df -h "${run_dir}" > "${run_dir}/disk.txt"
 for required in \
   "${model_root}/Qwen3-1.7B/config.json" \
   "${model_root}/JustRL-DeepSeek-1.5B/config.json" \
@@ -81,6 +75,17 @@ for required in \
     exit 4
   fi
 done
+
+if ! visible_gpus=$(python3 "${repo_root}/scripts/select_idle_gpus.py" --snapshot "${run_dir}/gpu_selection.json" --batch-size 256); then
+  echo "No idle NVIDIA GPU accessible; prepared ${run_dir}, training not started." >&2
+  exit 3
+fi
+export CUDA_VISIBLE_DEVICES="${visible_gpus}"
+export GPUS_PER_NODE=$(awk -F, '{print NF}' <<< "${visible_gpus}")
+nvidia-smi -L > "${run_dir}/gpu_inventory.txt" 2>&1
+nvidia-smi topo -m > "${run_dir}/gpu_topology.txt" 2>&1 || true
+df -h "${run_dir}" > "${run_dir}/disk.txt"
+echo "Using ${GPUS_PER_NODE} idle GPU(s): ${CUDA_VISIBLE_DEVICES}" >&2
 
 export MODEL_ROOT="${model_root}" DATA_ROOT="${data_root}"
 export OUTPUT_ROOT="${run_dir}/checkpoints" LOG_ROOT="${run_dir}/logs"
