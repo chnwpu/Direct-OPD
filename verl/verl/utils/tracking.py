@@ -236,7 +236,7 @@ class FileLogger:
             os.makedirs(directory, exist_ok=True)
             self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
             print(f"Creating file logger at {self.filepath}")
-        self.fp = open(self.filepath, "w")
+        self.fp = open(self.filepath, "a", buffering=1)
 
     def log(self, data, step):
         data = {"step": step, "data": data}

@@ -13,13 +13,13 @@ This branch is the E1 Direct-OPD experiment. The `vanilla-opd` branch is the E0 
 
 ## Implementation audit
 
-- `scripts/train_justrl_qwen.sh` defaults to `MINI_BATCH_SIZE=128`, and passes it as both `data.train_batch_size` and `actor.ppo_mini_batch_size`. The paper's table says 64. The reproduction must set `MINI_BATCH_SIZE=64` explicitly. `data.train_batch_size=64` counts prompts; with `rollout.n=4`, the actor sees 256 response trajectories per step, divided into mini batches of 64.
+- `scripts/train_justrl_qwen.sh` defaults to `MINI_BATCH_SIZE=128`, and passes it as both `data.train_batch_size` and `actor.ppo_mini_batch_size`. The paper's table says 64. The reproduction must set `MINI_BATCH_SIZE=64` explicitly. `data.train_batch_size=64` counts prompts; with `rollout.n=4`, the actor sees 256 response trajectories per step. The FSDP worker multiplies the configured PPO mini batch by rollout n and divides by the data-parallel world size, so the effective global actor mini batch is also 256 trajectories.
 - The script defaults to `MAX_VAL_RESP_LENGTH=32768`, while Appendix A specifies 31744. Set `MAX_VAL_RESP_LENGTH=31744` explicitly.
 - Appendix A says the DAPO `Answer:` template is used for evaluation, but the repository's AIME24/AIME25 parquet files use a `\\boxed{}` instruction and its supplied `ttrl_math.extract_answer` only accepts boxed answers. The primary reproduction follows the repository's prompt files and answer extractor as a matched pair; this paper/code discrepancy must be reported with the results.
 - Direct-OPD uses `reward_mode=delta_opd`, `top_k_strategy=only_stu`, `log_prob_top_k=16`, `reward_weight_mode=student_p`, `adv_estimator=token_reward_direct`, `loss_agg_mode=token-mean`, and full FSDP actor training.
-- `dp_actor._compute_delta_opd_rm_scores` computes `A_i=stop_gradient(softmax(log p_student on top-k)_i * (log p_T1_i - log p_T0_i))`. Actor updates use a 3D clipped PPO loss. With 64 prompts and four rollouts each, the 256 trajectories form four actor mini batches of 64; `on_policy` in `dp_actor` is therefore false and the code uses stored rollout log probabilities in the PPO ratio. Later mini batches can encounter a non-unit ratio. The separate sampled-token student-reference KL uses `low_var_kl` and an adaptive coefficient.
+- `dp_actor._compute_delta_opd_rm_scores` computes `A_i=stop_gradient(softmax(log p_student on top-k)_i * (log p_T1_i - log p_T0_i))`. Actor updates use a 3D clipped PPO loss. With the defaults of one PPO epoch and no forced rollout-log-prob override, the actor sees one mini batch per rank and uses detached current log probabilities for the old policy, giving a unit PPO ratio. The separate sampled-token student-reference KL uses `low_var_kl` and an adaptive coefficient.
 - Adaptive KL starts at 2.5, multiplies by `1 + 0.01 * sign(delta_opd/weighted_reward_mean)` before actor update, and clips to [0.5, 2.5]. The metric `weighted_reward_mean` is a mean over all valid top-k candidates, not a per-token sum.
-- For the PG term when all PPO ratios equal 1 and clipping is inactive, the full-vocabulary logit gradient is `-A_j + p_student(j) * sum_i A_i` for a top-k candidate, and `p_student(j) * sum_i A_i` outside top-k. In the actual run, the clipped PPO ratio, mini batch order, and sampled-token KL must be included in measured gradient contributions. Thus `p_student * reward` alone is not the actual logit gradient.
+- For the PG term when all PPO ratios equal 1 and clipping is inactive, the full-vocabulary logit gradient is `-A_j + p_student(j) * sum_i A_i` for a top-k candidate, and `p_student(j) * sum_i A_i` outside top-k. Gradient capture differentiates the PPO and sampled-token KL objective with the runtime settings and scaling. Thus `p_student * reward` alone is not the actual logit gradient.
 - Every ten steps, the deterministic 32-trajectory/128-position snapshot stores full-vocabulary-normalized probabilities. The actor captures `d(actual scaled PPO+KL loss)/d logit` for the same positions after each micro batch forward pass, including PPO clipping and the current adaptive KL coefficient. The recorded Teacher rank is exact only when a candidate lies within the Teacher top-k; deeper ranks require offline rescoring.
 - The launch script's `MANAGE_RAY=True` calls `ray stop --force` globally; use an isolated Ray process to protect unrelated jobs.
 - The requested `research-bootstrap` Skill is unavailable in the installed skill catalog and on the local filesystem. This directory was initialized manually with pinned sources, isolated run paths, and an independent Python environment.
@@ -36,3 +36,21 @@ This branch is the E1 Direct-OPD experiment. The `vanilla-opd` branch is the E0 
 The gate commands are `bash research/run_smoke.sh` (one small-batch step with gradient capture), `bash research/run_profile5.sh` (five full-size steps), and `bash research/run_e1.sh` (300-step E1). Each command writes to a separate `runs/` directory and records the code commit, package list, and launch configuration.
 
 After E1 produces diagnostic snapshots, run `PYTHONNOUSERSITE=1 .envs/direct-opd/bin/python research/analyze_on_policy.py --diagnostic-dir runs/e1_direct_opd/diagnostics --output-dir runs/e1_direct_opd/analysis` to write candidate-level parquet, support-bin statistics, and probability/shift heatmaps. A positive logged gradient means the optimizer step tends to lower that candidate's logit.
+
+## Offline scoring
+
+Use the exact token trajectories saved by the evaluator. For the fixed bank, run
+`research/build_prefix_candidates.py` on `step0_token_trajectories.pt`, then run
+`research/score_prefix_bank.py freeze` with the original Student and the resulting candidate file.
+This balances the 1024 prefixes by benchmark, correctness, relative position and initial entropy quartile.
+Run `research/score_prefix_bank.py score` on the bank with T0, T1 and each merged Student checkpoint.
+For FSDP checkpoints, export with `python -m verl.model_merger merge --backend fsdp --local_dir <checkpoint>/actor --target_dir <export>`.
+Pass the bank and score files to `research/analyze_prefix_bank.py`. Its checkpoint arguments accept
+the experiment, step and score file, and can be repeated.
+
+To obtain ranks outside the in-training Teacher top 16, run `research/rescore_teacher_rank.py`
+on the diagnostic directory with T1; the on-policy analysis joins these ranks with the training snapshots.
+Use `research/score_eval_entropy.py` with each exported Student and the matching evaluation token file
+to measure full-vocabulary entropy along generated responses.
+
+The two Teacher tokenizers agree on the thinking tag IDs. Shared Student/Teacher vocabulary entries match except `<think>` and `</think>`. The official scorer uses raw Student IDs, which this reproduction preserves. On-policy analysis exports a sensitivity summary excluding candidate IDs 151648, 151649, 151667 and 151668. This filter is used only in reporting.

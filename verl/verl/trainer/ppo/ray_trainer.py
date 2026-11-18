@@ -928,6 +928,11 @@ class RayPPOTrainer:
         sample_scores = []
         sample_turns = []
         sample_uids = []
+        validation_token_trajectories = []
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        sample_lengths = []
+        sample_repetitions = []
+        from research.metrics import repetition_4gram_rate, validation_metrics
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -968,6 +973,7 @@ class RayPPOTrainer:
 
             # Store original inputs
             input_ids = test_batch.batch["input_ids"]
+            prompt_attention_mask = test_batch.batch["attention_mask"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
@@ -1015,7 +1021,13 @@ class RayPPOTrainer:
             test_batch.meta_info["validate"] = True
             if "response_mask" not in test_batch.batch.keys():
                 test_batch.batch["response_mask"] = compute_response_mask(test_batch)
-            response_lengths = test_batch.batch["response_mask"].sum(dim=-1).cpu().tolist()
+            response_mask = test_batch.batch["response_mask"]
+            response_lengths = response_mask.sum(dim=-1).cpu().tolist()
+            sample_lengths.extend(response_lengths)
+            sample_repetitions.extend(
+                repetition_4gram_rate(ids.unsqueeze(0), mask.unsqueeze(0))
+                for ids, mask in zip(output_ids.cpu(), response_mask.cpu())
+            )
 
             # evaluate using reward_function
             if self.val_reward_fn is None:
@@ -1024,6 +1036,17 @@ class RayPPOTrainer:
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
+            if val_data_dir:
+                sources_for_tokens = test_batch.non_tensor_batch.get(
+                    "data_source", ["unknown"] * len(scores)
+                )
+                for row in range(len(scores)):
+                    validation_token_trajectories.append({
+                        "prompt_ids": input_ids[row][prompt_attention_mask[row].bool()].cpu().tolist(),
+                        "response_ids": output_ids[row][test_batch.batch["response_mask"][row].bool()].cpu().tolist(),
+                        "score": float(scores[row]),
+                        "data_source": str(sources_for_tokens[row]),
+                    })
 
             reward_extra_infos_dict["reward"].extend(scores)
             reward_extra_infos_dict["response_length"].extend(response_lengths)
@@ -1040,7 +1063,6 @@ class RayPPOTrainer:
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # dump generations
-        val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
             self._dump_generations(
                 inputs=sample_inputs,
@@ -1049,6 +1071,10 @@ class RayPPOTrainer:
                 scores=sample_scores,
                 reward_extra_infos_dict=reward_extra_infos_dict,
                 dump_path=val_data_dir,
+            )
+            torch.save(
+                validation_token_trajectories,
+                os.path.join(val_data_dir, f"step{self.global_steps}_token_trajectories.pt"),
             )
 
         for key_info, lst in reward_extra_infos_dict.items():
@@ -1080,6 +1106,12 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
+        metric_dict.update(validation_metrics(
+            data_sources, sample_uids, sample_scores, sample_lengths, sample_repetitions,
+            self.config.actor_rollout_ref.rollout.val_kwargs.get(
+                "max_tokens", self.config.data.max_response_length
+            ),
+        ))
         _add_aime24_aime25_average_metric(metric_dict)
 
         return metric_dict
@@ -1437,6 +1469,11 @@ class RayPPOTrainer:
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
+
+        metrics_path = os.environ.get("VERL_FILE_LOGGER_PATH")
+        if metrics_path:
+            config_path = os.path.join(os.path.dirname(metrics_path), "resolved_config.yaml")
+            OmegaConf.save(self.config, config_path, resolve=True)
 
         logger = Tracking(
             project_name=self.config.trainer.project_name,

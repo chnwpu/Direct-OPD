@@ -14,6 +14,7 @@ import torch
 SUPPORT_EDGES = [0.0, 0.001, 0.01, 0.05, 0.1, 0.3, 1.000001]
 SUPPORT_LABELS = ["<0.001", "0.001-0.01", "0.01-0.05", "0.05-0.1", "0.1-0.3", ">=0.3"]
 HIGH_SHIFT = float(np.log(10.0))
+THINK_TOKEN_IDS = {151648, 151649, 151667, 151668}
 
 
 def flatten_snapshot(path: Path) -> pd.DataFrame:
@@ -87,7 +88,14 @@ def summarize(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     top1 = frame[frame["teacher_t1_rank_within_topk_or_zero"] == 1]
     lower = frame[(frame["teacher_t1_probability"] < 0.1) & frame["high_positive_shift"]]
     top1_present = len(top1) / max(n_prefixes, 1)
+    joint = lower[lower["actual_logit_gradient"] < 0].merge(
+        top1[top1["actual_logit_gradient"] > 0][["step", "trajectory_index", "token_position"]].drop_duplicates(),
+        on=["step", "trajectory_index", "token_position"],
+    )
     diagnostics = {
+        "prefix_fraction_top1_suppressed_and_lower_candidate_reinforced": (
+            joint[["step", "trajectory_index", "token_position"]].drop_duplicates().shape[0] / max(n_prefixes, 1)
+        ),
         "prefix_positions": n_prefixes,
         "candidate_rows": len(frame),
         "high_shift_threshold_log_ratio": HIGH_SHIFT,
@@ -135,13 +143,53 @@ def main() -> None:
     grad_frame = flatten_gradients(gradients)
     keys = ["step", "trajectory_index", "token_position", "candidate_id"]
     frame = frame.merge(grad_frame, on=keys, how="left", validate="one_to_one")
+    rank_frames = []
+    for path in sorted(args.diagnostic_dir.glob("teacher_ranks_step_*.pt")):
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+        for row in payload["records"]:
+            ids = row["candidate_ids"].numpy()
+            rank_frames.append(pd.DataFrame({
+                "step": payload["step"],
+                "trajectory_index": row["batch_index"],
+                "token_position": np.repeat(row["token_positions"].numpy(), ids.shape[-1]),
+                "candidate_id": ids.ravel(),
+                "teacher_t1_rank_rescored": row["teacher_t1_rank"].numpy().ravel(),
+            }))
+    if rank_frames:
+        rank_data = pd.concat(rank_frames, ignore_index=True)
+        frame = frame.merge(rank_data, on=keys, how="left", validate="one_to_one")
+        # Prefer ranks from the in-training Teacher forward when available.
+        known_rank = frame["teacher_t1_rank_within_topk_or_zero"]
+        frame["teacher_t1_rank"] = known_rank.where(known_rank > 0, frame["teacher_t1_rank_rescored"])
     if frame["actual_logit_gradient"].isna().any():
         raise RuntimeError("Some selected candidates lack actor-loss gradient records")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(args.output_dir / "on_policy_candidates.parquet", index=False)
     summary, diagnostics = summarize(frame)
     summary.to_csv(args.output_dir / "support_buckets.csv", index=False)
+    by_step = []
+    step_summaries = []
+    for step, step_frame in frame.groupby("step", sort=True):
+        buckets, stats = summarize(step_frame)
+        high_shift_low_support = (step_frame["teacher_t1_probability"] < 0.1) & (
+            step_frame["policy_shift"] >= HIGH_SHIFT
+        )
+        stats["student_mass_low_support_high_shift_per_prefix"] = float(
+            step_frame.loc[high_shift_low_support, "student_probability"].sum()
+            / max(stats["prefix_positions"], 1)
+        )
+        by_step.append(buckets.assign(step=step))
+        step_summaries.append({"step": int(step), **stats})
+    pd.concat(by_step, ignore_index=True).to_csv(args.output_dir / "support_buckets_by_step.csv", index=False)
+    pd.DataFrame(step_summaries).to_csv(args.output_dir / "summary_by_step.csv", index=False)
     (args.output_dir / "summary.json").write_text(json.dumps(diagnostics, indent=2))
+    non_think = frame[~frame["candidate_id"].isin(THINK_TOKEN_IDS)]
+    if len(non_think) != len(frame):
+        bucket_sensitivity, diagnostic_sensitivity = summarize(non_think)
+        bucket_sensitivity.to_csv(args.output_dir / "support_buckets_without_think_ids.csv", index=False)
+        (args.output_dir / "summary_without_think_ids.json").write_text(
+            json.dumps(diagnostic_sensitivity, indent=2)
+        )
     draw_heatmaps(frame, args.output_dir)
 
 
