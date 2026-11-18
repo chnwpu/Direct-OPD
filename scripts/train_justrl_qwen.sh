@@ -42,6 +42,10 @@ SAVE_STEPS=${SAVE_STEPS:-"[0,10,20,40,60,100,150,200,300]"}
 TEST_STEPS=${TEST_STEPS:-"[40,100,200,300]"}
 DIAGNOSTIC_DIR=${DIAGNOSTIC_DIR:-}
 DIAGNOSTIC_EVERY=${DIAGNOSTIC_EVERY:-10}
+REWARD_MODE=${REWARD_MODE:-delta_opd}
+EXACT_TOPK_REVERSE_KL=${EXACT_TOPK_REVERSE_KL:-False}
+USE_KL_LOSS=${USE_KL_LOSS:-True}
+ADAPTIVE_KL_LOSS_COEF=${ADAPTIVE_KL_LOSS_COEF:-True}
 
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-token_reward_direct}
 GRPO_OUTCOME_WEIGHT=${GRPO_OUTCOME_WEIGHT:-1.0}
@@ -139,9 +143,10 @@ set +e
   actor_rollout_ref.actor.use_dynamic_bsz=True \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu="${PPO_MAX_TOKEN_LEN_PER_GPU}" \
   actor_rollout_ref.actor.ulysses_sequence_parallel_size="${PARALLEL_SIZE}" \
-  actor_rollout_ref.actor.use_kl_loss=True \
+  actor_rollout_ref.actor.use_kl_loss="${USE_KL_LOSS}" \
+  +actor_rollout_ref.actor.exact_topk_reverse_kl="${EXACT_TOPK_REVERSE_KL}" \
   actor_rollout_ref.actor.kl_loss_coef="${KL_LOSS_COEF}" \
-  actor_rollout_ref.actor.adaptive_kl_loss_coef=True \
+  actor_rollout_ref.actor.adaptive_kl_loss_coef="${ADAPTIVE_KL_LOSS_COEF}" \
   actor_rollout_ref.actor.adaptive_kl_loss_reward_key="${ADAPTIVE_KL_LOSS_REWARD_KEY}" \
   actor_rollout_ref.actor.adaptive_kl_loss_eps="${ADAPTIVE_KL_LOSS_EPS}" \
   actor_rollout_ref.actor.adaptive_kl_loss_min_coef="${ADAPTIVE_KL_LOSS_MIN_COEF}" \
@@ -161,7 +166,7 @@ set +e
   actor_rollout_ref.rollout.temperature="${TEMPERATURE}" \
   actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="${ROLLOUT_LOG_PROB_MAX_TOKEN_LEN_PER_GPU}" \
-  +actor_rollout_ref.rollout.reward_mode=delta_opd \
+  +actor_rollout_ref.rollout.reward_mode="${REWARD_MODE}" \
   +actor_rollout_ref.rollout.log_prob_top_k="${LOG_PROB_TOP_K}" \
   +actor_rollout_ref.rollout.top_k_strategy="${TOP_K_STRATEGY}" \
   +actor_rollout_ref.rollout.reward_weight_mode="${REWARD_WEIGHT_MODE}" \

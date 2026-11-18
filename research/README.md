@@ -1,6 +1,10 @@
 # Direct-OPD shift amplification study
 
-This branch is the E1 Direct-OPD experiment. The `vanilla-opd` branch is the E0 control. Raw weights, training data, checkpoints, and diagnostics belong under `models/`, `datasets/`, and `runs/` and are excluded from Git.
+This branch is the E0 vanilla OPD control. The `shift-amplification` branch is the E1 Direct-OPD experiment. E0 writes its own checkpoints and diagnostics under this branch's `runs/` directory and reads the same hash-verified models, dataset, and cloned Python environment as E1.
+
+## E0 objective
+
+E0 minimizes the exact Student-top-16 reverse KL of paper Eq. (4) against T1 on the Student rollout top-16 support. Student and T1 probabilities are each renormalized on that fixed support during the actor update. The code uses full-parameter FSDP training, the same rollout and evaluation settings as E1, and a zero coefficient on the Student-reference KL term. Reference log probabilities are still scored for measurement, and T0 is queried on diagnostic steps to compare policy shifts. The original `opd_kl` reward path is retained for batch construction, but its approximate detached reward is not used as E0's actor loss. `research/test_e0_loss.py` verifies the exact KL gradient, including zero gradient outside the fixed top-16 support.
 
 ## Pinned sources
 
@@ -28,11 +32,10 @@ This branch is the E1 Direct-OPD experiment. The `vanilla-opd` branch is the E0 
 ## Pending empirical gates
 
 1. Finish pinned Teacher downloads and verify checksums and tokenizer compatibility.
-2. The independent environment imports the official training entry point. The reward, clipped PPO, sampled KL, and logit-gradient unit tests pass with `PYTHONNOUSERSITE=1 PYTHONPATH="$PWD:$PWD/verl" .envs/direct-opd/bin/python research/test_loss_gradient.py`.
-3. Run the 1-step smoke test and 5-step profiling, including an end-to-end check of actor gradient capture.
-4. Recheck available GPUs, then start E1 on all idle cards and E0 after E1 is stable.
-5. Evaluate checkpoints and report the three requested diagnostics. No empirical conclusion is available before these runs.
+2. Run E1's 1-step smoke test and 5-step profiling, including an end-to-end check of actor gradient capture.
+3. Recheck available GPUs, start E1 on all idle cards, and start E0 after E1 is stable.
+4. Evaluate checkpoints and report the three requested diagnostics. No empirical conclusion is available before these runs.
 
-The gate commands are `bash research/run_smoke.sh` (one small-batch step with gradient capture), `bash research/run_profile5.sh` (five full-size steps), and `bash research/run_e1.sh` (300-step E1). Each command writes to a separate `runs/` directory and records the code commit, package list, and launch configuration.
+The E0 command is `bash research/run_e0.sh`; it writes the E0 configuration, code commit, environment, checkpoints, and diagnostics to `runs/e0_vanilla_opd`.
 
 After E1 produces diagnostic snapshots, run `PYTHONNOUSERSITE=1 .envs/direct-opd/bin/python research/analyze_on_policy.py --diagnostic-dir runs/e1_direct_opd/diagnostics --output-dir runs/e1_direct_opd/analysis` to write candidate-level parquet, support-bin statistics, and probability/shift heatmaps. A positive logged gradient means the optimizer step tends to lower that candidate's logit.

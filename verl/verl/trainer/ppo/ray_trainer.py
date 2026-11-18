@@ -642,7 +642,7 @@ class RayPPOTrainer:
         self.reward_mode = self.direct_opd_options["reward_mode"]
         self.use_delta_opd = self.reward_mode == "delta_opd"
         self.use_delta_opd_sampled = self.reward_mode == "delta_opd_sampled"
-        self.use_teacher_ref_scorer = self.use_delta_opd or self.use_delta_opd_sampled
+        self.use_teacher_ref_scorer = self.use_delta_opd or self.use_delta_opd_sampled or self.reward_mode == "opd_kl"
         if self.use_teacher_ref_scorer and not self.use_rm:
             raise ValueError(f"reward_mode={self.reward_mode} requires the reward model role for teacher scoring")
         if self.use_teacher_ref_scorer and OmegaConf.select(self.config, "teacher_ref_reward_model") is None:
@@ -1748,6 +1748,21 @@ class RayPPOTrainer:
                                 with marked_timer("compute_distillation_reward", timing_raw, color="orange"):
                                     distillation_output = self.actor_rollout_wg.compute_distillation_reward(batch)
                                     batch = batch.union(distillation_output)
+                                diagnostic_dir = self.config.trainer.get("diagnostic_dir", None)
+                                diagnostic_every = int(self.config.trainer.get("diagnostic_every", 10))
+                                if self.reward_mode == "opd_kl" and diagnostic_dir and self.global_steps % diagnostic_every == 0:
+                                    from research.diagnostics import dump_topk_batch, select_positions
+
+                                    teacher_ref_raw = self.teacher_ref_rm_wg.compute_rm_score(batch)
+                                    batch = batch.union(DataProto.from_dict(tensors={
+                                        "teacher_ref_on_student_log_probs": teacher_ref_raw.batch["teacher_on_student_log_probs"]
+                                    }))
+                                    dump_topk_batch(batch, self.global_steps, diagnostic_dir)
+                                    position_mask, trajectory_ids = select_positions(batch)
+                                    batch.batch["diagnostic_position_mask"] = position_mask.to(batch.batch["responses"].device)
+                                    batch.batch["diagnostic_trace_id"] = trajectory_ids.to(batch.batch["responses"].device)
+                                    batch.meta_info["diagnostic_dir"] = str(diagnostic_dir)
+                                    batch.meta_info["diagnostic_step"] = self.global_steps
                         
                         # Plot overlapping tokens for Reverse KL
                         if "swanlab" in self.config.trainer.logger and (self.global_steps == 1 or self.global_steps % 10 == 0) and "student_valid_counts" in batch.batch.keys():
@@ -2839,7 +2854,6 @@ class RayPPOTrainer:
 
                     # Pop unused keys to save memory before PPO update
                     keys_to_pop = [
-                        "teacher_on_student_log_probs",
                         "teacher_top_k_ids",
                         "teacher_top_k_log_probs",
                         "teacher_entropy",
@@ -2847,6 +2861,8 @@ class RayPPOTrainer:
                         "teacher_in_student_mask",
                         "student_log_probs_on_teacher_ids",
                     ]
+                    if not self.config.actor_rollout_ref.actor.get("exact_topk_reverse_kl", False):
+                        keys_to_pop.append("teacher_on_student_log_probs")
                     for key in keys_to_pop:
                         if key in batch.batch.keys():
                             batch.batch.pop(key)

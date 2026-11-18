@@ -41,6 +41,13 @@ from verl.workers.config import ActorConfig
 
 __all__ = ["DataParallelPPOActor", "_compute_delta_opd_rm_scores"]
 
+
+def _exact_topk_reverse_kl(student_logp_full: torch.Tensor, teacher_logp_full: torch.Tensor) -> torch.Tensor:
+    """Paper Eq. (4), per-position KL on the fixed Student top-k support."""
+    student_logp_topk = student_logp_full.log_softmax(dim=-1)
+    teacher_logp_topk = teacher_logp_full.log_softmax(dim=-1)
+    return (student_logp_topk.exp() * (student_logp_topk - teacher_logp_topk)).sum(dim=-1)
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -812,6 +819,8 @@ class DataParallelPPOActor(BasePPOActor):
         # Include student_top_k_ids if present (for fixing "apples-to-oranges" bug)
         if "student_top_k_ids" in data.batch.keys():
             select_keys.append("student_top_k_ids")
+        if self.config.get("exact_topk_reverse_kl", False):
+            select_keys.append("teacher_on_student_log_probs")
         if "diagnostic_position_mask" in data.batch.keys():
             select_keys.extend(["diagnostic_position_mask", "diagnostic_trace_id"])
 
@@ -941,19 +950,28 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
                     # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
-                    policy_loss_fn = get_policy_loss_fn(loss_mode)
-
-                    # Compute policy loss (any function is expected to return 2 values)
-                    pg_loss, pg_metrics = policy_loss_fn(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob_for_loss,  # 3D for top-k, 2D otherwise
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        loss_agg_mode=loss_agg_mode,
-                        config=self.config,
-                        rollout_is_weights=rollout_is_weights,
-                        format_mask=format_mask,
-                    )
+                    if self.config.get("exact_topk_reverse_kl", False):
+                        # Paper Eq. (4): reverse KL on the rollout Student top-k support.
+                        # Both distributions are normalized on that same fixed support.
+                        reverse_kl = _exact_topk_reverse_kl(
+                            log_prob_for_loss, model_inputs["teacher_on_student_log_probs"]
+                        )
+                        pg_loss = agg_loss(
+                            loss_mat=reverse_kl, loss_mask=response_mask, loss_agg_mode=loss_agg_mode
+                        )
+                        pg_metrics = {"actor/exact_topk_reverse_kl": pg_loss.detach().item()}
+                    else:
+                        policy_loss_fn = get_policy_loss_fn(loss_mode)
+                        pg_loss, pg_metrics = policy_loss_fn(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob_for_loss,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_is_weights=rollout_is_weights,
+                            format_mask=format_mask,
+                        )
                     micro_batch_metrics.update(pg_metrics)
 
                     if entropy_coeff != 0:

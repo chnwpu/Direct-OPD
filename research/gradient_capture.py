@@ -38,8 +38,10 @@ def capture_micro_batch(
     if rows.numel() == 0:
         return
     topk_derivative, sampled_derivative = torch.autograd.grad(
-        loss, (topk_logp, sampled_logp), retain_graph=True
+        loss, (topk_logp, sampled_logp), retain_graph=True, allow_unused=True
     )
+    if sampled_derivative is None:
+        sampled_derivative = torch.zeros_like(sampled_logp)
     ids = model_inputs["student_top_k_ids"][rows, positions]
     sampled_ids = model_inputs["responses"][rows, positions]
     candidate_gradient = candidate_logit_gradient(
@@ -68,7 +70,10 @@ def capture_micro_batch(
             "current_sampled_logp": sampled_logp[rows, positions].detach().cpu(),
             "old_student_logp_full_vocab": model_inputs["student_top_k_log_probs"][rows, positions].detach().cpu(),
             "advantages": model_inputs["advantages"][rows, positions].detach().cpu(),
-            "sampled_ref_logp": model_inputs["ref_log_prob"][rows, positions].detach().cpu(),
+            "sampled_ref_logp": (
+                model_inputs["ref_log_prob"][rows, positions].detach().cpu()
+                if "ref_log_prob" in model_inputs else None
+            ),
             "d_actual_scaled_loss_d_candidate_logit": candidate_gradient.detach().cpu(),
             "d_actual_scaled_loss_d_candidate_logp": topk_derivative[rows, positions].detach().cpu(),
             "d_actual_scaled_loss_d_sampled_logp": sampled_derivative[rows, positions].detach().cpu(),
