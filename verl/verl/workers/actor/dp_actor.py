@@ -804,6 +804,9 @@ class DataParallelPPOActor(BasePPOActor):
 
         if "format_mask" in data.batch.keys():
             select_keys.append("format_mask") # (bsz, 1)
+
+        if "fidelity_low_support_high_shift" in data.batch:
+            select_keys.append("fidelity_low_support_high_shift")
         
         # Include student_top_k_log_probs if present (for top-k distillation)
         if "student_top_k_log_probs" in data.batch.keys():
@@ -841,6 +844,7 @@ class DataParallelPPOActor(BasePPOActor):
 
         metrics = {}
         optimizer_updates = 0
+        fidelity_gradient_sums = None
         for _ in range(self.config.ppo_epochs):
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
@@ -980,6 +984,36 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * loss_scale_factor
                     else:
                         loss = policy_loss * loss_scale_factor
+                    low_support = model_inputs.get("fidelity_low_support_high_shift")
+                    if low_support is not None and log_prob_for_loss.ndim == 3:
+                        with torch.no_grad():
+                            candidate_probabilities = log_prob_for_loss.detach().float().exp()
+
+                        def record_direct_gradient(gradient):
+                            nonlocal fidelity_gradient_sums
+                            # Apply the log-softmax Jacobian to the actual PPO backward signal.
+                            # KL is on the sampled log-prob tensor and is excluded here.
+                            raw_gradient = gradient.float()
+                            outside_topk = (1 - candidate_probabilities.sum(dim=-1)).clamp_min(0)
+
+                            def logit_l1(coefficients):
+                                total = coefficients.sum(dim=-1, keepdim=True)
+                                on_topk = coefficients - candidate_probabilities * total
+                                return on_topk.abs().sum(dim=-1) + outside_topk * total.squeeze(-1).abs()
+
+                            full = logit_l1(raw_gradient)
+                            low = logit_l1(raw_gradient * low_support)
+                            boundaries = ((0, 512), (512, 1024), (1024, 2048), (2048, 4096), (4096, 6144))
+                            sums = torch.stack([
+                                torch.stack((full[:, start:end].sum(), low[:, start:end].sum()))
+                                for start, end in boundaries
+                            ]) / temperature
+                            if fidelity_gradient_sums is None:
+                                fidelity_gradient_sums = sums
+                            else:
+                                fidelity_gradient_sums += sums
+
+                        log_prob_for_loss.register_hook(record_direct_gradient)
                     loss.backward()
 
                     micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
@@ -991,5 +1025,14 @@ class DataParallelPPOActor(BasePPOActor):
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
         append_to_dict(metrics, {"actor/optimizer_updates_step": optimizer_updates})
+        if fidelity_gradient_sums is not None:
+            for (start, end), (full, low) in zip(
+                ((0, 512), (512, 1024), (1024, 2048), (2048, 4096), (4096, 6144)),
+                fidelity_gradient_sums.cpu().tolist(),
+            ):
+                append_to_dict(metrics, {
+                    f"actor/fidelity_logit_l1_{start}_{end}": full,
+                    f"actor/fidelity_low_support_logit_l1_{start}_{end}": low,
+                })
         self.actor_optimizer.zero_grad()
         return metrics

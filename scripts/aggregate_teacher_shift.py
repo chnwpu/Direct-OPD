@@ -36,7 +36,7 @@ def summarize_bins(rows: list[dict], minimum_length: int = 0) -> list[dict]:
             continue
         segments = {
             name: np.concatenate([row[name][start : min(end, row["length"])] for row in eligible])
-            for name in ("g", "t0_sampled_logprob", "t1_sampled_logprob", "t0_entropy", "t1_entropy",
+            for name in ("g", "absolute_candidate_shift", "t0_sampled_logprob", "t1_sampled_logprob", "t0_entropy", "t1_entropy",
                          "t0_max_probability", "t1_max_probability", "t0_support_mass", "t1_support_mass",
                          "t0_overlap", "t1_overlap", "positive_candidate_weight", "negative_candidate_weight",
                          "low_support_high_shift_weight")
@@ -47,7 +47,8 @@ def summarize_bins(rows: list[dict], minimum_length: int = 0) -> list[dict]:
             for row in eligible
         ]
         correlation = None
-        if len(per_trajectory) >= 3 and len({correct for _, correct in per_trajectory}) == 2:
+        if (len(per_trajectory) >= 3 and len({correct for _, correct in per_trajectory}) == 2
+                and np.std([value for value, _ in per_trajectory]) > 0):
             correlation = float(np.corrcoef(
                 [value for value, _ in per_trajectory],
                 [int(correct) for _, correct in per_trajectory],
@@ -58,6 +59,8 @@ def summarize_bins(rows: list[dict], minimum_length: int = 0) -> list[dict]:
             "trajectory_count": len(eligible),
             "token_count": len(g),
             "mean_g": float(np.mean(g)),
+            "mean_absolute_g": float(np.mean(np.abs(g))),
+            "mean_student_weighted_absolute_candidate_shift": float(np.mean(segments["absolute_candidate_shift"])),
             "g_quantiles": quantiles(g),
             "positive_g_fraction": float(np.mean(g > 0)),
             "negative_g_fraction": float(np.mean(g < 0)),
@@ -76,7 +79,7 @@ def summarize_bins(rows: list[dict], minimum_length: int = 0) -> list[dict]:
             "mean_low_support_high_shift_student_mass": float(
                 np.mean(segments["low_support_high_shift_weight"])
             ),
-            "g_vs_initial_student_correct_correlation": correlation,
+            "g_vs_trajectory_correct_correlation": correlation,
         })
     return result
 
@@ -118,6 +121,7 @@ def main() -> None:
                 "length": length,
                 "correct": trajectory["correct"],
                 "g": g,
+                "absolute_candidate_shift": np.sum(student_p * np.abs(delta), axis=-1),
                 "t0_sampled_logprob": t0["sampled_logprob"],
                 "t1_sampled_logprob": t1["sampled_logprob"],
                 "t0_entropy": t0["entropy"],
@@ -145,6 +149,8 @@ def main() -> None:
                 "mean_G": float(np.mean(values)) if values else None,
                 "standard_error": float(np.std(values, ddof=1) / np.sqrt(len(values))) if len(values) > 1 else None,
             })
+        long_curves = [np.cumsum(row["g"]) for row in rows if row["length"] >= 16384]
+        curve = np.mean(long_curves, axis=0) if long_curves else None
         results["models"][student_name] = {
             "trajectory_count": len(rows),
             "cumulative_shift": cumulative,
@@ -153,6 +159,10 @@ def main() -> None:
                 str(threshold): summarize_bins(rows, minimum_length=threshold)
                 for threshold in (4096, 6144, 8192, 16384)
             },
+            "cumulative_curve_same_16384_trajectory_subset": [
+                {"position": position, "mean_G": float(curve[position - 1])}
+                for position in range(128, 16385, 128)
+            ] if curve is not None else [],
         }
     args.output.write_text(json.dumps(results, indent=2) + "\n")
     print(f"Wrote teacher shift statistics to {args.output}")

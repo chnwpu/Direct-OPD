@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Aggregate teacher fidelity on actual sampled training rollouts."""
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+
+from aggregate_teacher_shift import summarize_bins
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("rollout_dir", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    result = []
+    for path in sorted(args.rollout_dir.glob("step_*_teacher_fidelity.npz")):
+        step = int(path.name.split("_")[1])
+        with (args.rollout_dir / f"{step}.jsonl").open() as handle:
+            generations = [json.loads(line) for line in handle]
+        with np.load(path, allow_pickle=False) as arrays:
+            lengths = arrays["length"]
+            offsets = np.r_[0, lengths.cumsum()]
+            if len(lengths) != len(generations):
+                raise ValueError(f"mismatched rollout counts in {path}")
+            fields = {name: arrays[name] for name in arrays.files if name != "length"}
+            rows = []
+            for index, generation in enumerate(generations):
+                selection = slice(offsets[index], offsets[index + 1])
+                rows.append({
+                    "length": int(lengths[index]),
+                    "correct": bool(generation["acc"]),
+                    **{name: values[selection] for name, values in fields.items()},
+                })
+        metrics_file = args.rollout_dir / f"step_{step:04d}_metrics.json"
+        metrics = json.loads(metrics_file.read_text())
+        result.append({
+            "step": step,
+            "all_available": summarize_bins(rows),
+            "same_long_trajectory_subset": {
+                str(threshold): summarize_bins(rows, minimum_length=threshold)
+                for threshold in (2048, 4096, 6144)
+            },
+            "actual_policy_gradient_logit_l1": {
+                key: value for key, value in metrics.items()
+                if key.startswith("actor/fidelity_")
+            },
+        })
+    if not result:
+        parser.error(f"no training fidelity files in {args.rollout_dir}")
+    args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
+
+
+if __name__ == "__main__":
+    main()

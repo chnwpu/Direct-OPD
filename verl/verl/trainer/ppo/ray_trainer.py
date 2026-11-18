@@ -768,10 +768,17 @@ class RayPPOTrainer:
             if len(v) == n:
                 base_data[k] = v
 
+        def encode_extra(value):
+            if torch.is_tensor(value):
+                return value.detach().cpu().tolist()
+            if isinstance(value, (np.ndarray, np.generic)):
+                return value.tolist()
+            raise TypeError(f"Cannot serialize rollout value of type {type(value).__name__}")
+
         lines = []
         for i in range(n):
             entry = {k: v[i] for k, v in base_data.items()}
-            lines.append(json.dumps(entry, ensure_ascii=False))
+            lines.append(json.dumps(entry, ensure_ascii=False, default=encode_extra))
 
         with open(filename, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -823,7 +830,7 @@ class RayPPOTrainer:
 
             reward_extra_infos_to_dump = reward_extra_infos_dict.copy()
             if "request_id" in batch.non_tensor_batch:
-                reward_extra_infos_dict.setdefault(
+                reward_extra_infos_to_dump.setdefault(
                     "request_id",
                     batch.non_tensor_batch["request_id"].tolist(),
                 )
@@ -849,6 +856,40 @@ class RayPPOTrainer:
                 global_step=np.int32(self.global_steps),
             )
             os.replace(temporary_path, token_path)
+
+    def _log_delta_opd_fidelity(self, batch: DataProto, teacher_ref: DataProto, output_dir: str):
+        """Save position-level statistics from the existing teacher forwards."""
+        tensors = batch.batch
+        reference = teacher_ref.batch
+        student_p = tensors["student_top_k_log_probs"].float().exp()
+        t0 = reference["teacher_on_student_log_probs"].float()
+        t1 = tensors["teacher_on_student_log_probs"].float()
+        delta = t1 - t0
+        low_support_high_shift = (t0 < np.log(1e-4)) & (t1 < np.log(1e-4)) & (delta.abs() > 2)
+        tensors["fidelity_low_support_high_shift"] = low_support_high_shift
+        valid = tensors["response_mask"].bool()
+        arrays = {
+            "length": valid.sum(dim=-1).cpu().numpy().astype(np.int32),
+            "g": (student_p * delta).sum(dim=-1),
+            "absolute_candidate_shift": (student_p * delta.abs()).sum(dim=-1),
+            "positive_candidate_weight": (student_p * (delta > 0)).sum(dim=-1),
+            "negative_candidate_weight": (student_p * (delta < 0)).sum(dim=-1),
+            "low_support_high_shift_weight": (student_p * low_support_high_shift).sum(dim=-1),
+        }
+        for name, teacher, candidate in (("t0", reference, t0), ("t1", tensors, t1)):
+            arrays[f"{name}_sampled_logprob"] = teacher["teacher_sampled_log_probs"]
+            arrays[f"{name}_entropy"] = teacher["teacher_entropy"]
+            arrays[f"{name}_max_probability"] = teacher["teacher_top_k_log_probs"][..., 0].float().exp()
+            arrays[f"{name}_support_mass"] = candidate.exp().sum(dim=-1)
+            arrays[f"{name}_overlap"] = teacher["overlap_mask"].float().mean(dim=-1)
+        arrays = {
+            key: value.detach().float()[valid].cpu().numpy() if torch.is_tensor(value) else value
+            for key, value in arrays.items()
+        }
+        os.makedirs(output_dir, exist_ok=True)
+        output = os.path.join(output_dir, f"step_{self.global_steps:04d}_teacher_fidelity.npz")
+        np.savez(f"{output}.tmp.npz", **arrays)
+        os.replace(f"{output}.tmp.npz", output)
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
@@ -1679,6 +1720,8 @@ class RayPPOTrainer:
                                     raise ValueError(
                                         "teacher_ref_rm_wg.compute_rm_score must return teacher_on_student_log_probs"
                                     )
+                                if rollout_dir := self.config.trainer.get("rollout_data_dir", None):
+                                    self._log_delta_opd_fidelity(batch, teacher_ref_raw, rollout_dir)
                                 teacher_ref_tensors = {
                                     "teacher_ref_on_student_log_probs": teacher_ref_raw.batch[
                                         "teacher_on_student_log_probs"
