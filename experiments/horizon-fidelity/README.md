@@ -77,3 +77,26 @@ survive to the 4096-token prefix.
 with FP32 forwards in chunks, then queries both teachers on each student's
 top-16 IDs. `aggregate_teacher_shift.py` applies Eq. 20 and reports all
 available positions and shared long-trajectory cohorts separately.
+
+Use `summarize_training_fidelity.py` on a completed run's `rollouts/` directory
+to bin the statistics captured by the two training teacher forwards. The
+actor also records the L1 norm of the direct PPO gradient in logit space, for
+all candidates and for the gradient component from low-support, high-shift
+candidates. The cutoffs are probability below 0.0001 under both teachers and
+absolute log-ratio above 2. The norm of the component can exceed that of the
+total when components cancel. The measurement excludes the separate KL term.
+
+Export an actor checkpoint with the repository's FSDP merger before using
+`evaluate_horizon_checkpoint.py` or `teacher_forced_stats.py`:
+
+```bash
+export PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/verl"
+.envs/direct-opd/bin/python -m verl.model_merger merge --backend fsdp \
+  --local_dir "$CHECKPOINT/actor" --target_dir "$EXPORTED_MODEL"
+.envs/direct-opd/bin/python scripts/evaluate_horizon_checkpoint.py \
+  --model "$EXPORTED_MODEL" --output-dir "$EVAL_RUN"
+```
+
+For the token-matched comparison, evaluate both selected checkpoints with
+the same offline evaluator and seed. The offline evaluator specifies a seed
+per problem, while the trainer uses its rollout engine's seed.
