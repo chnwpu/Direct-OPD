@@ -55,3 +55,18 @@ questions once and four predetermined questions a second time (64 trajectories
 total), keeps the complete prompt and response token IDs, and caps responses at
 16,384 tokens. The launcher chooses an idle GPU outside the maximal training
 group when one is available.
+
+Teacher continuation probes condition on the original Student token IDs,
+matching the official teacher-forced reward path. Qwen3 chat special token IDs
+decode differently under the DeepSeek tokenizers. Verification therefore
+decodes the frozen prefix with the Student tokenizer and each new continuation
+with its generating model's tokenizer. This mismatch is an interpretation
+limit for teacher capability probes.
+`audit_token_alignment.py` quantifies the ID mismatch on the frozen set by
+response position, so this issue can be assessed alongside reward fidelity.
+`select_continuation_prefixes.py` freezes 12 questions and only existing
+512/1024/2048/4096-token prefixes before any teacher continuations. Each of
+T0, T1 and S0 gets eight samples per prefix, up to 1,152 in total.
+`summarize_prefix_continuations.py` reports the observed success rates and
+finite-sample intervals, including a comparison restricted to questions that
+survive to the 4096-token prefix.
