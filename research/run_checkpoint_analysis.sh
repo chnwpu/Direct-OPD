@@ -75,3 +75,4 @@ done
 "$python" research/compare_evaluations.py --baseline "$baseline" --output "$output/aime_comparison.csv" "${eval_args[@]}"
 "$python" research/export_training_dynamics.py --e1-metrics "$e1/logs/metrics.jsonl" \
     --e0-metrics "$e0/logs/metrics.jsonl" --analysis-dir "$output"
+"$python" research/write_report.py "$output" --profile "$root/runs/e1_profile5/profile_summary.json"
