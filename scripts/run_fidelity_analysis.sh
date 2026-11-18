@@ -104,7 +104,8 @@ wait_batch
 
 "${python_bin}" scripts/aggregate_teacher_shift.py "${frozen}/trajectories.jsonl" \
   --stats-dir "${run_dir}/forwards" --output "${run_dir}/teacher_shift.json"
-"${python_bin}" scripts/plot_teacher_shift.py "${run_dir}/teacher_shift.json" --output "${run_dir}/figure8.pdf"
+MPLCONFIGDIR="${run_dir}/matplotlib" python3 scripts/plot_teacher_shift.py \
+  "${run_dir}/teacher_shift.json" --output "${run_dir}/figure8.pdf"
 "${python_bin}" scripts/summarize_prefix_continuations.py \
   --t0 "${run_dir}/continuations/T0.jsonl" --t1 "${run_dir}/continuations/T1.jsonl" \
   --s0 "${run_dir}/continuations/S0.jsonl" --shift-stats-dir "${run_dir}/forwards" \
@@ -124,4 +125,37 @@ submit matched_h2 "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
 submit matched_h6 "${python_bin}" scripts/evaluate_horizon_checkpoint.py \
   --model "${h6_model}" --output-dir "${run_dir}/matched_h6_step_${matched_step}"
 wait_batch
+"${python_bin}" scripts/summarize_horizon_accuracy.py \
+  --h2 "${h2}" --h4 "${h4}" --h6 "${h6}" --analysis "${run_dir}"
+
+python3 - "${run_dir}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+fidelity = json.loads((root / "prefix_fidelity.json").read_text())
+change = fidelity["paired_change_from_512_to_4096"]
+trigger = bool(
+    change and change["mean_absolute_shift_change_4096_minus_512"] > 0
+    and min(change["change_95_percent_interval"][1], change["t1_change_95_percent_interval"][1]) < 0
+)
+(root / "candidate_probe_gate.json").write_text(json.dumps({
+    "triggered": trigger,
+    "rule": (
+        "Among matched 512/4096 prefixes, mean absolute Eq. 20 shift increases and "
+        "the 95% conditional interval for change in F or T1 success lies below zero"
+    ),
+    "paired_change": change,
+}, indent=2) + "\n")
+PY
+if python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1]))["triggered"])' \
+  "${run_dir}/candidate_probe_gate.json"; then
+  submit select_actions "${python_bin}" scripts/select_candidate_probes.py \
+    "${frozen}/trajectories.jsonl" "${run_dir}/forwards" --output "${run_dir}/action_probes.jsonl"
+  wait_batch
+  submit probe_actions "${python_bin}" scripts/run_candidate_probes.py \
+    "${run_dir}/action_probes.jsonl" --output-dir "${run_dir}/candidate_values"
+  wait_batch
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "${run_dir}/finished_utc.txt"

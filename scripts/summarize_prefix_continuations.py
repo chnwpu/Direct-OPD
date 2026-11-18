@@ -124,11 +124,24 @@ def main() -> None:
     paired_change = None
     if paired_lengths:
         changes = np.mean([advantage_draws[late] - advantage_draws[early] for late, early in paired_lengths], axis=0)
+        t1_changes = np.mean([
+            success_draws[late]["T1"] - success_draws[early]["T1"] for late, early in paired_lengths
+        ], axis=0)
         paired_change = {
             "prefix_pairs": len(paired_lengths),
             "mean_posterior_change_in_F_4096_minus_512": float(changes.mean()),
             "change_95_percent_interval": interval(changes),
+            "mean_posterior_change_in_T1_success_4096_minus_512": float(t1_changes.mean()),
+            "t1_change_95_percent_interval": interval(t1_changes),
         }
+        if args.shift_stats_dir:
+            shifts = {
+                (row["problem_id"], row["trajectory_id"], row["prefix_length"]): row["next_token_eq20_shift"]
+                for row in per_prefix
+            }
+            paired_change["mean_absolute_shift_change_4096_minus_512"] = float(np.mean([
+                abs(shifts[late]) - abs(shifts[early]) for late, early in paired_lengths
+            ]))
     output = {
         "uncertainty_method": "20,000 seeded Monte Carlo draws from independent Jeffreys Beta(successes+0.5, failures+0.5) posteriors; 2.5 and 97.5 percentiles",
         "uncertainty_scope": "continuation sampling uncertainty conditional on these selected prefixes; does not include uncertainty from sampling mathematical problems",

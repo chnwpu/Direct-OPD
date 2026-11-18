@@ -113,3 +113,6 @@ and continuation success, use `select_candidate_probes.py` and
 at 512 or 1024 tokens and 12 at 4096 or 8192 tokens. Candidate C has the largest
 positive raw log-ratio among eligible Student top-16 alternatives. Pairwise
 reward and continuation-value ranks are compared with finite-sample intervals.
+The automatic trigger uses the matched 512/4096 cohort. It requires an
+increase in mean absolute Eq. 20 shift and a 95% conditional interval for
+the change in F or T1 success wholly below zero.

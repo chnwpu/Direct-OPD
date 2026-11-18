@@ -81,6 +81,10 @@ def summarize_bins(rows: list[dict], minimum_length: int = 0) -> list[dict]:
             ),
             "g_vs_trajectory_correct_correlation": correlation,
         })
+        for field in ("anchored_direct_logit_l1", "anchored_low_support_logit_l1"):
+            if field in eligible[0]:
+                values = [row[field][start : min(end, row["length"])] for row in eligible]
+                result[-1][f"mean_{field}"] = float(np.mean(np.concatenate(values)))
     return result
 
 
@@ -119,6 +123,16 @@ def main() -> None:
             if student_name == "S0":
                 baseline_shift[trajectory_id] = g
             low_support_high_shift = (t0_lp < np.log(1e-4)) & (t1_lp < np.log(1e-4)) & (np.abs(delta) > 2)
+            student_mass = student_p.sum(axis=-1, keepdims=True)
+            # Exact direct-loss gradient at PPO ratio 1, with detached rollout weights.
+            coefficients = -student_p * delta / student_mass
+
+            def logit_l1(gradient):
+                sum_gradient = gradient.sum(axis=-1, keepdims=True)
+                inside = np.abs(gradient - student_p * sum_gradient).sum(axis=-1)
+                outside = np.abs(sum_gradient[:, 0]) * np.maximum(1 - student_mass[:, 0], 0)
+                return inside + outside
+
             rows.append({
                 "id": trajectory_id,
                 "length": length,
@@ -142,6 +156,8 @@ def main() -> None:
                 "positive_candidate_weight": np.sum(student_p * (delta > 0), axis=-1),
                 "negative_candidate_weight": np.sum(student_p * (delta < 0), axis=-1),
                 "low_support_high_shift_weight": np.sum(student_p * low_support_high_shift, axis=-1),
+                "anchored_direct_logit_l1": logit_l1(coefficients),
+                "anchored_low_support_logit_l1": logit_l1(coefficients * low_support_high_shift),
             })
         cumulative = []
         for horizon in (512, 1024, 2048, 4096, 6144, 8192, 16384):
