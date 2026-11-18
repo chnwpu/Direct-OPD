@@ -9,5 +9,6 @@ export VAL_BEFORE_TRAIN=False
 export VAL_N=1
 export SAVE_STEPS='[0,5]'
 export TEST_STEPS='[]'
+export DIAGNOSTIC_EVERY=5
 
 bash "${ROOT}/research/run_e1.sh"
