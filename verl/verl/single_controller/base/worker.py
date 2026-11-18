@@ -251,9 +251,16 @@ class Worker(WorkerHelper):
             # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set,
             # so we need to set local rank when the flag is set.
             device_name = "NPU" if is_npu_available else "GPU"
-            local_rank = ray.get_runtime_context().get_accelerator_ids()[device_name][0]
-            os.environ["LOCAL_RANK"] = local_rank
-            get_torch_device().set_device(int(local_rank))
+            accelerator_id = str(ray.get_runtime_context().get_accelerator_ids()[device_name][0])
+            visible_ids = [value.strip() for value in cuda_val.split(",")] if cuda_val else []
+            # Ray reports the assigned physical ID, while CUDA indexes the visible subset.
+            local_rank = (
+                visible_ids.index(accelerator_id)
+                if device_name == "GPU" and accelerator_id in visible_ids
+                else int(accelerator_id)
+            )
+            os.environ["LOCAL_RANK"] = str(local_rank)
+            get_torch_device().set_device(local_rank)
 
     def _configure_with_store(self, store: dict):
         """
