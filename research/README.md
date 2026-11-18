@@ -4,7 +4,7 @@ This branch is the E0 vanilla OPD control. The `shift-amplification` branch is t
 
 ## E0 objective
 
-E0 minimizes the exact Student-top-16 reverse KL of paper Eq. (4) against T1 on the Student rollout top-16 support. Student and T1 probabilities are each renormalized on that fixed support during the actor update. The code uses full-parameter FSDP training, the same rollout and evaluation settings as E1, and a zero coefficient on the Student-reference KL term. Reference log probabilities are still scored for measurement, and T0 is queried on diagnostic steps to compare policy shifts. The original `opd_kl` reward path is retained for batch construction, but its approximate detached reward is not used as E0's actor loss. `research/test_e0_loss.py` verifies the exact KL gradient, including zero gradient outside the fixed top-16 support.
+E0 minimizes the exact Student-top-16 reverse KL of paper Eq. (4) against T1 on the Student rollout top-16 support. Student and T1 probabilities are each renormalized on that fixed support during the actor update. The code uses full-parameter FSDP training, the same rollout and evaluation settings as E1, and a zero coefficient on the Student-reference KL term. Reference log probabilities are still scored for measurement, and T0 is queried for per-step policy shift measurement. The original `opd_kl` reward path is retained for batch construction, but its approximate detached reward is not used as E0's actor loss. `research/test_e0_loss.py` verifies the exact KL gradient, including zero gradient outside the fixed top-16 support.
 
 ## Pinned sources
 

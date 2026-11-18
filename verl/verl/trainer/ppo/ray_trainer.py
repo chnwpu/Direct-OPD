@@ -1787,12 +1787,20 @@ class RayPPOTrainer:
                                     batch = batch.union(distillation_output)
                                 diagnostic_dir = self.config.trainer.get("diagnostic_dir", None)
                                 diagnostic_every = int(self.config.trainer.get("diagnostic_every", 10))
+                                if self.reward_mode == "opd_kl":
+                                    with marked_timer("compute_teacher_ref_rm_score", timing_raw, color="magenta"):
+                                        teacher_ref_raw = self.teacher_ref_rm_wg.compute_rm_score(batch)
+                                    teacher_ref_logp = teacher_ref_raw.batch["teacher_on_student_log_probs"]
+                                    teacher_shift = batch.batch["teacher_on_student_log_probs"] - teacher_ref_logp
+                                    weights = batch.batch["student_top_k_log_probs"].softmax(dim=-1)
+                                    metrics["delta_opd/weighted_reward_token_mean"] = masked_mean(
+                                        (weights * teacher_shift).sum(dim=-1), batch.batch["response_mask"]
+                                    ).item()
                                 if self.reward_mode == "opd_kl" and diagnostic_dir and self.global_steps % diagnostic_every == 0:
                                     from research.diagnostics import dump_topk_batch, select_positions
 
-                                    teacher_ref_raw = self.teacher_ref_rm_wg.compute_rm_score(batch)
                                     batch = batch.union(DataProto.from_dict(tensors={
-                                        "teacher_ref_on_student_log_probs": teacher_ref_raw.batch["teacher_on_student_log_probs"]
+                                        "teacher_ref_on_student_log_probs": teacher_ref_logp
                                     }))
                                     dump_topk_batch(batch, self.global_steps, diagnostic_dir)
                                     position_mask, trajectory_ids = select_positions(batch)
