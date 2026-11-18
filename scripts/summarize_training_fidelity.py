@@ -10,6 +10,15 @@ import numpy as np
 from aggregate_teacher_shift import summarize_bins
 
 
+def verifier_correct(generation):
+    if "acc" in generation:
+        return bool(generation["acc"])
+    if "verifier_score" in generation:
+        return generation["verifier_score"] > 0
+    reward = generation["true_reward_score"]
+    return (sum(reward) if isinstance(reward, list) else reward) > 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rollout_dir", type=Path)
@@ -31,7 +40,7 @@ def main():
                 selection = slice(offsets[index], offsets[index + 1])
                 rows.append({
                     "length": int(lengths[index]),
-                    "correct": bool(generation["acc"]),
+                    "correct": verifier_correct(generation),
                     **{name: values[selection] for name, values in fields.items()},
                 })
         metrics_file = args.rollout_dir / f"step_{step:04d}_metrics.json"

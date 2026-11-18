@@ -37,6 +37,7 @@ def main() -> None:
 
     per_prefix = []
     advantage_draws = {}
+    success_draws = {}
     for key in sorted(by_key):
         samples = by_key[key]
         if any(len(samples[model]) != 8 for model in ("T0", "T1", "S0")):
@@ -56,6 +57,7 @@ def main() -> None:
             }
         difference = posteriors["T1"] - posteriors["T0"]
         advantage_draws[key] = difference
+        success_draws[key] = posteriors
         entry = {
             "problem_id": key[0],
             "trajectory_id": key[1],
@@ -87,6 +89,18 @@ def main() -> None:
                 "prefix_count": len(subset),
                 "mean_observed_F": float(np.mean([row["teacher_advantage_F"] for row in subset])),
                 "mean_F_95_percent_interval": interval(np.mean(arrays, axis=0)),
+                "by_model": {
+                    model: {
+                        "mean_observed_success_rate": float(np.mean([
+                            row["models"][model]["success_rate"] for row in subset
+                        ])),
+                        "mean_success_95_percent_interval": interval(np.mean([
+                            success_draws[(row["problem_id"], row["trajectory_id"], length)][model]
+                            for row in subset
+                        ], axis=0)),
+                    }
+                    for model in ("T0", "T1", "S0")
+                },
             }
             if args.shift_stats_dir and len(subset) >= 3:
                 shifts = np.array([row["next_token_eq20_shift"] for row in subset])
@@ -103,6 +117,18 @@ def main() -> None:
         return result
 
     long_ids = {row["problem_id"] for row in per_prefix if row["prefix_length"] == 4096}
+    paired_lengths = [
+        (key, (key[0], key[1], 512)) for key in advantage_draws
+        if key[2] == 4096 and (key[0], key[1], 512) in advantage_draws
+    ]
+    paired_change = None
+    if paired_lengths:
+        changes = np.mean([advantage_draws[late] - advantage_draws[early] for late, early in paired_lengths], axis=0)
+        paired_change = {
+            "prefix_pairs": len(paired_lengths),
+            "mean_posterior_change_in_F_4096_minus_512": float(changes.mean()),
+            "change_95_percent_interval": interval(changes),
+        }
     output = {
         "uncertainty_method": "20,000 seeded Monte Carlo draws from independent Jeffreys Beta(successes+0.5, failures+0.5) posteriors; 2.5 and 97.5 percentiles",
         "uncertainty_scope": "continuation sampling uncertainty conditional on these selected prefixes; does not include uncertainty from sampling mathematical problems",
@@ -111,6 +137,7 @@ def main() -> None:
         "by_length_same_4096_survivors": summarize_length(
             [row for row in per_prefix if row["problem_id"] in long_ids]
         ),
+        "paired_change_from_512_to_4096": paired_change,
     }
     args.output.write_text(json.dumps(output, indent=2) + "\n")
     print(f"Summarized {len(per_prefix)} prefixes to {args.output}")

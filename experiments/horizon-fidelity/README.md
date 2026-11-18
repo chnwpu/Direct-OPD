@@ -100,3 +100,16 @@ export PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/verl"
 For the token-matched comparison, evaluate both selected checkpoints with
 the same offline evaluator and seed. The offline evaluator specifies a seed
 per problem, while the trainer uses its rollout engine's seed.
+
+After all three 40-step runs finish, pass their run directories and the fixed
+trajectory directory to `run_fidelity_analysis.sh`. It merges the Step 40
+checkpoints, generates the common-cohort Figure 8 plot, summarizes training
+and continuation fidelity, and evaluates the closest H6 checkpoint to H2
+Step 40 by generated-token count.
+
+If the first analyses show substantial disagreement between teacher shift
+and continuation success, use `select_candidate_probes.py` and
+`run_candidate_probes.py`. The seeded rule samples up to 12 eligible questions
+at 512 or 1024 tokens and 12 at 4096 or 8192 tokens. Candidate C has the largest
+positive raw log-ratio among eligible Student top-16 alternatives. Pairwise
+reward and continuation-value ranks are compared with finite-sample intervals.

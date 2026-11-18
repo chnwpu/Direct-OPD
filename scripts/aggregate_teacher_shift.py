@@ -97,6 +97,7 @@ def main() -> None:
                "correctness_label": "initial Student correctness on the frozen trajectory",
                "low_support_high_shift_rule": "both teacher candidate probabilities < 1e-4 and absolute log-ratio > 2",
                "models": {}}
+    baseline_shift = {}
     for student_name in args.students:
         rows = []
         for trajectory in trajectories:
@@ -115,6 +116,8 @@ def main() -> None:
             g = np.sum(student_p * delta, axis=-1)
             if not np.isfinite(g).all():
                 raise ValueError(f"nonfinite Eq. 20 shift for trajectory {trajectory_id}")
+            if student_name == "S0":
+                baseline_shift[trajectory_id] = g
             low_support_high_shift = (t0_lp < np.log(1e-4)) & (t1_lp < np.log(1e-4)) & (np.abs(delta) > 2)
             rows.append({
                 "id": trajectory_id,
@@ -151,9 +154,26 @@ def main() -> None:
             })
         long_curves = [np.cumsum(row["g"]) for row in rows if row["length"] >= 16384]
         curve = np.mean(long_curves, axis=0) if long_curves else None
+        changes = []
+        if student_name != "S0" and baseline_shift:
+            for start, end in BINS:
+                # Compare the same positions in the same trajectories in both policies.
+                differences = [
+                    float((row["g"][start:end] - baseline_shift[row["id"]][start:end]).sum())
+                    for row in rows if row["length"] >= end
+                ]
+                changes.append({
+                    "start": start, "end": end, "trajectory_count": len(differences),
+                    "mean_segment_shift_change": float(np.mean(differences)) if differences else None,
+                    "standard_error": (
+                        float(np.std(differences, ddof=1) / np.sqrt(len(differences)))
+                        if len(differences) > 1 else None
+                    ),
+                })
         results["models"][student_name] = {
             "trajectory_count": len(rows),
             "cumulative_shift": cumulative,
+            "paired_shift_change_vs_S0": changes,
             "bins_all_available": summarize_bins(rows),
             "bins_same_long_trajectory_subset": {
                 str(threshold): summarize_bins(rows, minimum_length=threshold)

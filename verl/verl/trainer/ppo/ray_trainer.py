@@ -829,6 +829,11 @@ class RayPPOTrainer:
             sample_gts = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch]
 
             reward_extra_infos_to_dump = reward_extra_infos_dict.copy()
+            verifier_reward = reward_extra_infos_to_dump.pop("true_reward_score", None)
+            if torch.is_tensor(verifier_reward):
+                reward_extra_infos_to_dump["verifier_score"] = verifier_reward.sum(-1).cpu().tolist()
+            elif verifier_reward is not None:
+                reward_extra_infos_to_dump["true_reward_score"] = verifier_reward
             if "request_id" in batch.non_tensor_batch:
                 reward_extra_infos_to_dump.setdefault(
                     "request_id",
