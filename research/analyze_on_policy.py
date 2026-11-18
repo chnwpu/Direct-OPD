@@ -74,6 +74,7 @@ def summarize(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         student_probability_mass=("student_probability", "sum"),
         shift_median=("policy_shift", "median"),
         shift_p90=("policy_shift", lambda x: x.quantile(0.9)),
+        high_positive_shift_count=("high_positive_shift", "sum"),
         high_positive_shift_fraction=("high_positive_shift", "mean"),
         absolute_gradient_sum=("absolute_gradient", "sum"),
         signed_gradient_sum=("actual_logit_gradient", "sum"),
@@ -81,6 +82,9 @@ def summarize(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     summary["student_mass_per_prefix"] = summary["student_probability_mass"] / max(n_prefixes, 1)
     summary["student_mass_share_in_topk"] = (
         summary["student_probability_mass"] / summary["student_probability_mass"].sum()
+    )
+    summary["share_of_high_shift_candidates"] = (
+        summary["high_positive_shift_count"] / summary["high_positive_shift_count"].sum()
     )
     summary["absolute_gradient_share"] = (
         summary["absolute_gradient_sum"] / summary["absolute_gradient_sum"].sum()
@@ -95,6 +99,10 @@ def summarize(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     diagnostics = {
         "prefix_fraction_top1_suppressed_and_lower_candidate_reinforced": (
             joint[["step", "trajectory_index", "token_position"]].drop_duplicates().shape[0] / max(n_prefixes, 1)
+        ),
+        "high_shift_low_support_candidate_count": len(lower),
+        "high_shift_low_support_share_of_absolute_gradient": float(
+            lower["absolute_gradient"].sum() / frame["absolute_gradient"].sum()
         ),
         "prefix_positions": n_prefixes,
         "candidate_rows": len(frame),
