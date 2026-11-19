@@ -5,6 +5,17 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 RESOURCE_ROOT="${RESOURCE_ROOT:-/data2/ch/projects/dopd/direct-opd}"
 RUN_DIR="${RUN_DIR:-${ROOT}/runs/e0_vanilla_opd}"
 mkdir -p "${RUN_DIR}/checkpoints" "${RUN_DIR}/logs" "${RUN_DIR}/diagnostics" "${RUN_DIR}/ray"
+# A parallel launch and the original sequencing controller may reach this run.
+# Hold the lock through training and avoid starting a completed run again.
+exec 9>"${RUN_DIR}/run.lock"
+flock 9
+ckpt="${RUN_DIR}/checkpoints/e0_vanilla_opd"
+if [[ -f "${ckpt}/latest_checkpointed_iteration.txt" ]] &&
+   [[ "$(cat "${ckpt}/latest_checkpointed_iteration.txt")" == 300 ]] &&
+   [[ -s "${ckpt}/outputs/validation_log/e0_vanilla_opd/300.jsonl" ]]; then
+  echo "E0 training and Step 300 evaluation are already complete."
+  exit 0
+fi
 
 for model_file in \
   "${RESOURCE_ROOT}/models/Qwen3-1.7B/model-00001-of-00002.safetensors" \
