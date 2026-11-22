@@ -1,0 +1,47 @@
+{
+  "protocol_sha256": "fad8d55e032f67abd1bafbc18675599aa8fc09152f5a141648ca2dd34c60dd83",
+  "raw_sha256": {
+    "train-00000-of-00010.parquet": "d6412432f30425e848a224dc641e681eb1ed51b970d52536eda7daefc01d8c8b",
+    "train-00001-of-00010.parquet": "eef9d3012456239eb0f4cd462ac7bebb7d6c4f675c41329c680ef8a506ded512",
+    "train-00002-of-00010.parquet": "20e4dc6527d94c2057a9b727f8b58994395de602e284b3294f7d2451f75d681a",
+    "train-00003-of-00010.parquet": "c5b20135f93e7890da191973ad77d88e67c95144ccc169ec592489f044e7c38a",
+    "train-00004-of-00010.parquet": "4153e531d78ca278d2e12e6d08099b66126b26b99ca6a92b3d6f95c156818749",
+    "train-00005-of-00010.parquet": "110586bdc6f35b0434bccbd582f1e97e8328da0752ccd36590a50178885f0360",
+    "train-00006-of-00010.parquet": "e39c00ed42a6a1af74ddc042840884a59adcb9139a23f535e399ddf0c292ef76",
+    "train-00007-of-00010.parquet": "fdeb213b5c2d0bb50f1081ae48b7ce4fa38147efe623de5d6d836a32f4044dad",
+    "train-00008-of-00010.parquet": "d8e5b1417f0364312896d259efbea0600c1fac22eacb2f71187c5b0e9704f388",
+    "train-00009-of-00010.parquet": "67639c6620cabce348e91c2cc331c4877307ed1a5d8fbd1c0d7dcca561cea8df"
+  },
+  "removed_conflicting_question_ids": 3,
+  "removed_overlong_prompts": 0,
+  "revision": "5cf055d1fe3d7a2eb19719ac020211469736ae44",
+  "seed": 42,
+  "source": "zwhe99/DeepMath-103K",
+  "splits": {
+    "preflight": {
+      "ids_sha256": "0b944937a801941cb9fa84b1c16d90335e178a8a90e5aa952f4c76bdc5a2a8d1",
+      "parquet_sha256": "aa942b9655d7ad4f41b06a9ccd3d408d16c8b61497e6025dae1acab45e99e38a",
+      "rows": 128
+    },
+    "probe": {
+      "ids_sha256": "1e54310b386fd836cf7a10e5f3252e9f6fdb1a1bd8e8146b9edb859427aa4dcc",
+      "parquet_sha256": "4e2d32eeff3808437670edf8e81a398decc0c270f90ccedd24f596757312e2d4",
+      "rows": 256
+    },
+    "test": {
+      "ids_sha256": "226a9a173af1c888cd1f51c4576e8598ebc620491144d9b3e7d8c6111a210e28",
+      "parquet_sha256": "a8d8486277e2665e8f9139a5c66174b80eab2ded747d72e85ae48ca4c7a2dc9c",
+      "rows": 1024
+    },
+    "train": {
+      "ids_sha256": "6ed0483264b8080f3bda9ad753e87b97f70b220cd09a26b695243365471243a5",
+      "parquet_sha256": "5c7ed8dddd4dca13ac4cdd02491422e661021500275c69494e5b187ace7e19de",
+      "rows": 100301
+    },
+    "validation": {
+      "ids_sha256": "370deb40d77ea5cc744cdb05b9f62fcb64c6211c76229378037006879634dbd0",
+      "parquet_sha256": "68d7f1d0984c2adb529d310e18511b69ce41682e2659e8d3fe961ceea88f47ed",
+      "rows": 256
+    }
+  }
+}

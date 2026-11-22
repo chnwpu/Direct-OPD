@@ -410,10 +410,20 @@ class vLLMRollout(BaseRollout):
                 ] * batch_size
 
         # users can customize different sampling_params at different run
+        grpo_seeds = non_tensor_batch.get("grpo_sampling_seed")
         with self.update_sampling_params(**kwargs):
+            request_sampling = self.sampling_params
+            if grpo_seeds is not None:
+                from copy import deepcopy
+
+                request_sampling = []
+                for seed in grpo_seeds:
+                    params = deepcopy(self.sampling_params)
+                    params.seed = int(seed)
+                    request_sampling.append(params)
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
-                sampling_params=self.sampling_params,
+                sampling_params=request_sampling,
                 lora_request=lora_requests,
                 use_tqdm=False,
             )
@@ -423,16 +433,21 @@ class vLLMRollout(BaseRollout):
 
             response = []
             rollout_log_probs = []
+            finish_reasons = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
+                    finish_reasons.append(output.outputs[sample_id].finish_reason)
                     if self.config.calculate_log_probs:
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                             curr_log_prob.append(logprob[response_ids[i]].logprob)
                         rollout_log_probs.append(curr_log_prob)
 
+            if grpo_seeds is not None:
+                non_tensor_batch["grpo_finish_reason"] = np.asarray(finish_reasons, dtype=object)
+                non_tensor_batch["grpo_output_length"] = np.asarray([len(row) for row in response], dtype=np.int32)
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=padding_max_length).to(
                 idx.device
             )

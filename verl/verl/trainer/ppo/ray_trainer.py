@@ -1285,6 +1285,11 @@ class RayPPOTrainer:
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
+        if self.config.trainer.get("grpo_run_dir"):
+            import random
+
+            torch.save({"python": random.getstate(), "numpy": np.random.get_state(), "torch": torch.get_rng_state()},
+                       os.path.join(local_global_step_folder, "driver_rng.pt"))
 
         # latest checkpointed iteration tracker (for atomic usage)
         local_latest_checkpointed_iteration = os.path.join(
@@ -1353,6 +1358,13 @@ class RayPPOTrainer:
         if os.path.exists(dataloader_local_path):
             dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
             self.train_dataloader.load_state_dict(dataloader_state_dict)
+            if self.config.trainer.get("grpo_run_dir"):
+                import random
+
+                states = torch.load(os.path.join(global_step_folder, "driver_rng.pt"), weights_only=False)
+                random.setstate(states["python"])
+                np.random.set_state(states["numpy"])
+                torch.set_rng_state(states["torch"])
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
@@ -1474,6 +1486,8 @@ class RayPPOTrainer:
         if metrics_path:
             config_path = os.path.join(os.path.dirname(metrics_path), "resolved_config.yaml")
             OmegaConf.save(self.config, config_path, resolve=True)
+            if os.environ.get("GRPO_CONFIG_SNAPSHOT"):
+                OmegaConf.save(self.config, os.environ["GRPO_CONFIG_SNAPSHOT"], resolve=True)
 
         logger = Tracking(
             project_name=self.config.trainer.project_name,
@@ -1482,6 +1496,15 @@ class RayPPOTrainer:
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
+        grpo_run_dir = self.config.trainer.get("grpo_run_dir")
+        if grpo_run_dir:
+            import random
+
+            from grpo_dynamics.record import capture, sampling_seeds, save_step
+
+            random.seed(self.config.data.seed)
+            np.random.seed(self.config.data.seed)
+            torch.manual_seed(self.config.data.seed)
         self.global_steps = 0
 
         # load checkpoint before doing anything
@@ -1548,6 +1571,10 @@ class RayPPOTrainer:
                     repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                 )
 
+                if grpo_run_dir:
+                    gen_batch_output.non_tensor_batch["grpo_sampling_seed"] = sampling_seeds(
+                        self.global_steps, len(gen_batch_output)
+                    )
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -2923,6 +2950,10 @@ class RayPPOTrainer:
                                 else:
                                     metrics["actor/adaptive_kl_loss_missing_reward"] = 1
                             batch.meta_info["actor_kl_loss_coef"] = float(actor_config.kl_loss_coef)
+                            if grpo_run_dir:
+                                with marked_timer("record_rollouts", timing_raw):
+                                    grpo_rollouts = capture(batch, reward_extra_infos_dict, self, grpo_run_dir)
+                                batch.meta_info["audited_grpo"] = True
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
@@ -3021,6 +3052,8 @@ class RayPPOTrainer:
                     self.train_dataloader.sampler.update(batch=batch)
 
                 # TODO: make a canonical logger that supports various backend
+                if grpo_run_dir:
+                    save_step(grpo_run_dir, self.global_steps, grpo_rollouts, metrics, timing_raw)
                 logger.log(data=metrics, step=self.global_steps)
 
                 progress_bar.update(1)

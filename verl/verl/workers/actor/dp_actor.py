@@ -840,8 +840,20 @@ class DataParallelPPOActor(BasePPOActor):
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
+        audited_grpo = data.meta_info.get("audited_grpo", False)
+        if audited_grpo and not on_policy:
+            raise ValueError("Audited GRPO requires exactly one optimizer update per rollout batch")
 
         metrics = {}
+        audited_sums = {}
+        if audited_grpo:
+            if self.ulysses_sequence_parallel_size != 1 or self.config.loss_agg_mode != "token-mean":
+                raise ValueError("Audited GRPO requires token-mean and no sequence parallelism")
+            global_tokens = data.batch["response_mask"].sum().to(get_device_id())
+            torch.distributed.all_reduce(global_tokens, op=torch.distributed.ReduceOp.SUM)
+            tokens_per_rank = float(global_tokens.item()) / torch.distributed.get_world_size()
+            if tokens_per_rank == 0:
+                raise ValueError("No active response tokens")
         for _ in range(self.config.ppo_epochs):
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
@@ -866,7 +878,11 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
 
-                    if self.config.use_dynamic_bsz:
+                    if audited_grpo:
+                        # FSDP averages rank gradients. Scale its local token mean
+                        # so dynamic packing cannot change the global objective.
+                        loss_scale_factor = response_mask.sum().item() / tokens_per_rank
+                    elif self.config.use_dynamic_bsz:
                         loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
@@ -908,7 +924,7 @@ class DataParallelPPOActor(BasePPOActor):
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
                         old_log_prob = model_inputs["old_log_probs"]
                     else:
-                        if on_policy:
+                        if on_policy and not audited_grpo:
                             print("on_policy")
                             # For on-policy (ppo_epochs=1), use current policy as "old"
                             # log_prob_for_loss is already 3D for top-k case
@@ -997,10 +1013,19 @@ class DataParallelPPOActor(BasePPOActor):
                     loss.backward()
 
                     micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
-                    append_to_dict(metrics, micro_batch_metrics)
+                    if audited_grpo:
+                        audited_sums["actor/pg_loss"] = audited_sums.get("actor/pg_loss", 0.0) + micro_batch_metrics["actor/pg_loss"]
+                        for name, value in pg_metrics.items():
+                            audited_sums[name] = audited_sums.get(name, 0.0) + value * loss_scale_factor
+                    else:
+                        append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()
+                if audited_grpo and not torch.isfinite(grad_norm):
+                    raise FloatingPointError("Actor optimizer step was skipped due to non-finite gradients")
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
+        if audited_grpo:
+            append_to_dict(metrics, audited_sums)
         self.actor_optimizer.zero_grad()
         return metrics

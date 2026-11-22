@@ -911,6 +911,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
             metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
             metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            if data.meta_info.get("audited_grpo", False):
+                peak = torch.tensor(get_torch_device().max_memory_reserved(), dtype=torch.int64, device=get_device_id())
+                torch.distributed.all_reduce(peak, op=torch.distributed.ReduceOp.MAX)
+                metrics["grpo/actor_rollout_peak_reserved_gib"] = peak.item() / 1024**3
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
@@ -937,6 +941,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         assert self._is_rollout
+        if "grpo_sampling_seed" in prompts.non_tensor_batch:
+            get_torch_device().reset_peak_memory_stats()
         prompts = prompts.to(get_device_id())
 
         meta_info = {
