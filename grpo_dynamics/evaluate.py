@@ -73,6 +73,7 @@ def generate(args):
     finally:
         if writer:
             writer.close()
+        engine.llm_engine.engine_core.shutdown()
     temp.replace(args.output)
 
 
