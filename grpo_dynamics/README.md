@@ -102,3 +102,19 @@ A truncated candidate distribution is labeled explicitly and its KL is
 conditioned on the candidate support. The Student-weighted cosine compares each
 requested interval with the next specified interval. Alignment and covariance
 are descriptive quantities.
+
+## Completed run audit and Teacher pilot
+
+    python -m grpo_dynamics.audit_run --run runs/RUN_ID
+    bash grpo_dynamics/teacher_pilot.sh RUN_ID
+
+The audit verifies all 100 rollout row counts and cumulative token counts,
+matches data/config provenance on every HF export, rehashes the export and
+validation files, and inventories the full Step 50/100 recovery state. The
+small Teacher pilot uses two fixed prefix positions from each of 32 Step 0
+validation trajectories, balanced across correct and incorrect outcomes.
+It scores the entire vocabulary with all 11 exported checkpoints and reports
+adjacent plus selected non-adjacent interval metrics in
+dynamics/teacher_pilot/teacher_only.json. Pilot labels describe the archived
+Step 0 validation trajectories. They do not measure a Student's distillation
+benefit or substitute for a separate Student Probe.
